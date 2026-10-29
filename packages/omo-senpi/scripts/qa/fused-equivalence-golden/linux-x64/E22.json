@@ -9197,6 +9197,12 @@
          "model_id": "mock-model",
          "display": "mock-model"
         },
+        "effective_model": {
+         "provider": "mock",
+         "model_id": "mock-model",
+         "display": "mock/mock-model",
+         "source": "category"
+        },
         "run_in_background": false,
         "progress": {
          "activity": "eqchild · category:eqcat(mock/mock-model) · starting",
@@ -9238,6 +9244,12 @@
          "provider": "mock",
          "model_id": "mock-model",
          "display": "mock-model"
+        },
+        "effective_model": {
+         "provider": "mock",
+         "model_id": "mock-model",
+         "display": "mock/mock-model",
+         "source": "category"
         },
         "run_in_background": false,
         "progress": {
