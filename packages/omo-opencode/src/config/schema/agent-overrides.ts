@@ -66,7 +66,36 @@ export const AgentOverrideConfigSchema = z.object({
     .optional(),
 })
 
+export const AutopilotAgentOverrideSchema = AgentOverrideConfigSchema.strict().superRefine((value, ctx) => {
+  const reject = (path: string) => ctx.addIssue({ code: "custom", path: [path], message: "invalid_autopilot_setting" })
+  if (value.mode !== undefined && value.mode !== "subagent") reject("mode")
+  for (const field of ["providerOptions", "ultrawork", "compaction"] as const) {
+    if (value[field] !== undefined) reject(field)
+  }
+  const entries = [...(value.models ?? []), ...(typeof value.fallback_models === "string"
+    ? [value.fallback_models] : value.fallback_models ?? [])]
+  if (value.model !== undefined && !value.model.trim()) reject("model")
+  if ((value.model?.length ?? 0) > 256) reject("model")
+  if (value.models?.length === 0) reject("models")
+  if ((value.skills?.length ?? 0) > 32 || value.skills?.some(skill => !skill || skill.length > 256)) reject("skills")
+  if ((value.prompt?.length ?? 0) > 65536 || (value.prompt_append?.length ?? 0) > 65536) reject("prompt")
+  if (entries.length > 32 || entries.some(entry => (typeof entry === "string" ? entry : entry.model).length > 256)) reject("models")
+  if (entries.some(entry => !(typeof entry === "string" ? entry : entry.model).trim())) reject("models")
+  for (const settings of [value, ...entries.filter(entry => typeof entry !== "string")]) {
+    if (settings.maxTokens !== undefined && (!Number.isSafeInteger(settings.maxTokens) || settings.maxTokens < 1)) reject("maxTokens")
+    const budget = settings.thinking?.budgetTokens
+    if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 1)) reject("thinking")
+  }
+  for (const [tool, enabled] of Object.entries(value.tools ?? {})) {
+    if (enabled && !["read", "glob", "grep"].includes(tool)) reject("tools")
+  }
+  for (const [tool, permission] of Object.entries(value.permission ?? {})) {
+    if (permission !== "deny" && !(["read", "glob", "grep"].includes(tool) && ["allow", "ask"].includes(String(permission)))) reject("permission")
+  }
+})
+
 export const AgentOverridesSchema = z.object({
+  autopilot: AutopilotAgentOverrideSchema.optional(),
   build: AgentOverrideConfigSchema.optional(),
   plan: AgentOverrideConfigSchema.optional(),
   sisyphus: AgentOverrideConfigSchema.optional(),

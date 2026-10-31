@@ -24,6 +24,23 @@ type PromptArgs = {
 }
 
 bunDescribe("sendSyncPrompt", () => {
+  bunTest("#given paused native dispatch status #when cancellation arrives #then the gate sends no late prompt", async () => {
+    const { sendSyncPrompt } = require("./sync-prompt-sender")
+    const { createSyncAdmission } = require("./sync-admission")
+    const entered = Promise.withResolvers<void>(), resume = Promise.withResolvers<{ data: Record<string, unknown> }>()
+    const controller = new AbortController()
+    const control = createSyncAdmission({ invocationId: "dispatch", waiterId: "dispatch", signal: controller.signal, deadline: Date.now() + 5000 })
+    let sends = 0
+    const client = { session: { status: async () => { entered.resolve(); return resume.promise },
+      messages: async () => ({ data: [] }), promptAsync: async () => { sends++; return { data: undefined } } } }
+    const sending = sendSyncPrompt(client, { sessionID: `controlled-${crypto.randomUUID()}`, agentToUse: "autopilot",
+      args: { description: "controlled", prompt: "captured", load_skills: [], run_in_background: false },
+      directory: process.cwd(), systemContent: "captured", categoryModel: { providerID: "test", modelID: "one" },
+      toastManager: null, taskId: undefined, control, ownedPrompt: { messageID: "msg_owned", tools: { "*": false } } })
+    await entered.promise; controller.abort(); resume.resolve({ data: {} })
+    await sending
+    bunExpect(sends).toBe(0); control.dispose()
+  })
   bunAfterEach(() => {
     clearSessionPromptParams("test-session")
   })

@@ -8,6 +8,7 @@ export type PrunedPluginView = {
   /** Plugin-schema issues left standing: non-empty only when the view could not be pruned into shape. */
   readonly issues: readonly z.core.$ZodIssue[]
   readonly warnings: readonly string[]
+  readonly rejectedPaths: readonly string[]
 }
 
 const validatePluginRecord: PruneValidator = (record) => {
@@ -27,13 +28,15 @@ export function prunePluginView(input: {
   readonly path: string
 }): PrunedPluginView {
   const validation = OhMyOpenCodeConfigSchema.safeParse(input.config)
-  if (validation.success) return { config: input.config, issues: [], warnings: [] }
+  if (validation.success) return { config: input.config, issues: [], warnings: [], rejectedPaths: [] }
+  const rejectedPaths = validation.error.issues.map(issue => issue.path.map(String).join("."))
   const pruned = pruneInvalidConfigPaths(input.config, validation.error.issues, validatePluginRecord)
-  if (!pruned.ok) return { config: input.config, issues: validation.error.issues, warnings: [] }
+  if (!pruned.ok) return { config: input.config, issues: validation.error.issues, warnings: [], rejectedPaths }
   const file = displayOmoConfigPath(input.path, input.homeDir)
   return {
     config: pruned.config,
     issues: [],
+    rejectedPaths,
     warnings: pruned.dropped.map((entry) => `config: ${file}: ${input.keyPrefix}${entry.key} ignored (invalid value)`),
   }
 }

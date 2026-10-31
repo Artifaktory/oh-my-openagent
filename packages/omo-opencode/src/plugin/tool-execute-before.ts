@@ -45,11 +45,12 @@ export function createToolExecuteBeforeHandler(args: {
   ctx: PluginContext
   hooks: CreatedHooks
   backgroundManager?: Pick<BackgroundManager, "hasActiveChildTasks" | "hasPendingParentWake">
+  isAutopilotTarget?: (agent: unknown) => boolean
 }): (
   input: { tool: string; sessionID: string; callID: string },
   output: { args: Record<string, unknown> },
 ) => Promise<void> {
-  const { ctx, hooks, backgroundManager } = args
+  const { ctx, hooks, backgroundManager, isAutopilotTarget } = args
 
   return async (input, output): Promise<void> => {
     const execution: PrometheusExecutionArguments = { original: output.args }
@@ -67,6 +68,7 @@ export function createToolExecuteBeforeHandler(args: {
     }
 
     const normalizedToolName = input.tool.toLowerCase()
+    const preserveAutopilotTarget = normalizedToolName === "task" && isAutopilotTarget?.(output.args.subagent_type)
     if (
       BTW_DELEGATION_TOOLS.has(normalizedToolName) &&
       isTrackedBtwSideSession(input.sessionID)
@@ -137,7 +139,7 @@ export function createToolExecuteBeforeHandler(args: {
       const subagentType = typeof output.args.subagent_type === "string" ? output.args.subagent_type : undefined
       const taskId = typeof output.args.task_id === "string" ? output.args.task_id : undefined
 
-      if (category) {
+      if (category && !preserveAutopilotTarget) {
         replaceToolArgs(output, { subagent_type: "sisyphus-junior" })
       } else if (!subagentType && taskId) {
         const resolvedAgent = await resolveSessionAgent(ctx.client, taskId)

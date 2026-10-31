@@ -1,8 +1,19 @@
 import { describe, expect, test } from "bun:test"
 import { AGENT_MODEL_REQUIREMENTS } from "./model-requirements"
 import { FABLE_55_RELEASED } from "./fable-55-launch"
+import { resolveModelPipeline } from "./model-resolution-pipeline"
 
 describe("AGENT_MODEL_REQUIREMENTS", () => {
+  test("Autopilot's central defaults retain explicit native model precedence without a provider prerequisite", () => {
+    const requirement = AGENT_MODEL_REQUIREMENTS.autopilot
+    const resolution = resolveModelPipeline({ intent: { userModel: "operator/model" }, constraints: { availableModels: new Set(["operator/model"]) },
+      policy: { fallbackChain: requirement.fallbackChain, systemDefaultModel: "system/default" } })
+    expect(resolution?.model).toBe("operator/model")
+    expect(resolution?.provenance).toBe("override")
+    expect(requirement.requiresProvider).toBeUndefined()
+    expect(requirement.requiresModel).toBeUndefined()
+  })
+
   test("oracle has gpt-5.6-sol xhigh as primary", () => {
     // given
     const oracle = AGENT_MODEL_REQUIREMENTS["oracle"]

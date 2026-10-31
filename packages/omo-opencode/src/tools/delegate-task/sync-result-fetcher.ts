@@ -1,6 +1,59 @@
 import type { OpencodeClient } from "./types"
 import type { SessionMessage } from "./executor-types"
 import { normalizeSDKResponse } from "../../shared"
+import { getAgentConfigKey } from "../../shared/agent-display-names"
+
+export interface NativeFinalResult {
+  readonly sessionID: string
+  readonly messageID: string
+  readonly parentMessageID: string
+  readonly agent: "autopilot"
+  readonly nativeAgent: string
+  readonly providerID: string
+  readonly modelID: string
+  readonly completedAt: number
+  readonly text: string
+}
+
+type StrictMessage = {
+  info?: { id?: string; sessionID?: string; parentID?: string; role?: string; agent?: string;
+    providerID?: string; modelID?: string; model?: { providerID?: string; modelID?: string };
+    time?: { created?: number; completed?: number }; finish?: string; error?: unknown }
+  parts?: { type?: string; text?: string; ignored?: boolean; synthetic?: boolean }[]
+}
+
+/** Uses only the latest actual assistant final for the owned prompt, never a generic task result. */
+export async function fetchAutopilotFinalResult(client: OpencodeClient, expected: {
+  readonly sessionID: string; readonly promptMessageID: string; readonly dispatchedAt: number
+  readonly providerID: string; readonly modelID: string; readonly signal: AbortSignal
+  readonly nativeAgent?: string
+}): Promise<NativeFinalResult> {
+  const response = await client.session.messages({ path: { id: expected.sessionID }, signal: expected.signal })
+  if (expected.signal.aborted || (response && typeof response === "object" && "error" in response && response.error)) {
+    throw new Error("autopilot_final_unavailable")
+  }
+  const messages = normalizeSDKResponse(response, [] as StrictMessage[])
+  if (!Array.isArray(messages)) throw new Error("autopilot_final_unavailable")
+  const lastUser = messages.filter(message => message.info?.role === "user").at(-1)
+  const latest = messages.map((message, index) => ({ message, index }))
+    .filter(entry => entry.message.info?.role === "assistant")
+    .sort((a, b) => (b.message.info?.time?.created ?? 0) - (a.message.info?.time?.created ?? 0) || b.index - a.index)[0]?.message
+  const info = latest?.info
+  const providerID = info?.providerID ?? info?.model?.providerID
+  const modelID = info?.modelID ?? info?.model?.modelID
+  if (!info?.id || info.sessionID !== expected.sessionID || info.parentID !== expected.promptMessageID
+    || lastUser?.info?.id !== expected.promptMessageID || info.error !== undefined
+    || typeof info.agent !== "string"
+    || (expected.nativeAgent ? info.agent !== expected.nativeAgent : getAgentConfigKey(info.agent ?? "") !== "autopilot") || info.finish !== "stop"
+    || typeof info.time?.created !== "number" || info.time.created < expected.dispatchedAt
+    || typeof info.time.completed !== "number" || info.time.completed < info.time.created
+    || providerID !== expected.providerID || modelID !== expected.modelID) throw new Error("autopilot_final_mismatch")
+  const text = (latest?.parts ?? []).filter(part => part.type === "text" && !part.ignored && !part.synthetic)
+    .map(part => part.text ?? "").join("\n")
+  if (!text.trim() || Buffer.byteLength(text) > 16384) throw new Error("autopilot_final_invalid")
+  return Object.freeze({ sessionID: expected.sessionID, messageID: info.id, parentMessageID: expected.promptMessageID,
+    agent: "autopilot", nativeAgent: info.agent, providerID, modelID, completedAt: info.time.completed, text })
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")

@@ -3,7 +3,7 @@ import { setSkillSourceProvenance } from "@oh-my-opencode/skills-loader-core/ope
 import { knownUserSkillRoots } from "@oh-my-opencode/skills-loader-core/opencode-skill-loader/skill-provenance"
 import { detectWorktreePath } from "@oh-my-opencode/skills-loader-core/shared/project-discovery-dirs"
 
-import { omoConfigDiagnosticLines, type OmoConfigEnv } from "@oh-my-opencode/omo-config-core"
+import { omoConfigDiagnosticLines, type OmoConfigDiagnostic, type OmoConfigEnv } from "@oh-my-opencode/omo-config-core"
 import type * as z from "zod"
 
 import { applyDisabledProviders } from "../shared/disabled-providers"
@@ -13,6 +13,7 @@ import { mergeConfigs } from "../plugin-config/config-merger"
 import { findUnknownKeyPaths } from "../plugin-config/unknown-key-diagnostics"
 import { prunePluginView } from "./prune-plugin-view"
 import { OhMyOpenCodeConfigSchema, type OhMyOpenCodeConfig } from "./schema"
+import { bindAutopilotConfiguration } from "../features/autopilot/authority"
 
 export type PluginConfigValidation = {
   readonly valid: boolean
@@ -24,6 +25,7 @@ export type PluginConfigValidation = {
 }
 
 type LoadedConfigView = {
+  readonly rejectedPaths: readonly string[]
   readonly config: Partial<OhMyOpenCodeConfig>
   readonly messages: readonly string[]
   readonly path: string
@@ -62,6 +64,7 @@ function parseConfigView(view: OmoOpenCodeConfigView, homeDir: string | undefine
   const pruned = prunePluginView({ config: view.config, homeDir, keyPrefix: view.keyPrefix, path: view.path })
   return {
     config: parseConfig(pruned.config),
+    rejectedPaths: [...pruned.rejectedPaths, ...findUnknownKeyPaths(OhMyOpenCodeConfigSchema, view.config).map(path => path.map(String).join("."))],
     messages: schemaMessages(view.path, view.config, pruned.issues),
     path: view.path,
     warnings: pruned.warnings,
@@ -200,6 +203,8 @@ export function validatePluginConfig(
   const messages = [...chainMessages, ...views.flatMap((view) => view.messages)]
   const warnings = [
     ...omoConfigDiagnosticLines(chain.diagnostics.flatMap((diagnostic) => diagnostic.kind === "invalid-value" ? [diagnostic] : []), { homeDir }),
+    ...omoConfigDiagnosticLines(chain.diagnostics.filter((diagnostic): diagnostic is OmoConfigDiagnostic => diagnostic.kind === "validation"
+      && diagnostic.issuePaths?.some(key => /(^|\.)agents\.autopilot(\.|$)/i.test(key)) === true), { homeDir }),
     ...views.flatMap((view) => view.warnings),
   ]
   const firstFailingView = views.find((view) => view.messages.length > 0)
@@ -229,11 +234,17 @@ export function validatePluginConfig(
     })
   }
 
+  const finalConfig = migrateRalphLoopConfig(migrateLegacyUlwExecuteKey(config))
+  const autopilot = bindAutopilotConfiguration(finalConfig, chain, directory, views.flatMap(view => view.rejectedPaths))
+  if (autopilot.state === "invalid") messages.push(...autopilot.errors.map(error => `autopilot: ${error}`))
+  if (autopilot.state === "enabled" || autopilot.state === "operator_off") {
+    finalConfig.autopilot = parseConfig(chain.autopilotOperatorView).autopilot
+  } else delete finalConfig.autopilot
   return {
     valid: messages.length === 0,
     messages,
     warnings,
     path: failing[0]?.path ?? firstFailingView?.path ?? firstView?.path ?? null,
-    config: migrateRalphLoopConfig(migrateLegacyUlwExecuteKey(config)),
+    config: finalConfig,
   }
 }

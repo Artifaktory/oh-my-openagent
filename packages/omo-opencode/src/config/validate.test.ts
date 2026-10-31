@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { validatePluginConfig } from "./validate"
+import { getAutopilotBinding } from "../features/autopilot/authority"
 
 type EnvSnapshot = {
   readonly HOME: string | undefined
@@ -64,6 +65,16 @@ function writeProjectConfig(fixture: Fixture, config: unknown): void {
 }
 
 describe("validatePluginConfig", () => {
+  it("#given an invalid selected Autopilot category #when validating #then its fault survives pruning without changing another agent", () => {
+    withOmoConfig("autopilot-category-invalid", fixture => {
+      writeUserConfig(fixture, { "[opencode]": { agents: { oracle: { model: "provider/ordinary" } } } })
+      writeProjectConfig(fixture, { "[opencode]": { agents: { autopilot: { category: "review" } }, categories: { review: { model: 123 } } } })
+      const result = validatePluginConfig(fixture.project)
+      expect(getAutopilotBinding(result.config)?.state).toBe("invalid")
+      expect(result.config.agents?.oracle?.model).toBe("provider/ordinary")
+    })
+  })
+
   it("#given no omo config #when validating #then returns plugin defaults", () => {
     withOmoConfig("defaults", (fixture) => {
       const result = validatePluginConfig(fixture.project)

@@ -9,7 +9,7 @@ import type {
   AvailableSkill,
 } from "../../agents/dynamic-agent-prompt-builder"
 
-type SessionPathInput = { readonly path: { readonly id: string } }
+type SessionPathInput = { readonly path: { readonly id: string }; readonly signal?: AbortSignal }
 type SessionMessagesQuery = { readonly directory?: string; readonly limit?: number }
 type SessionPromptInput = Omit<SessionPromptData | SessionPromptAsyncData, "url"> & {
   readonly signal?: AbortSignal | null
@@ -22,7 +22,7 @@ type SessionCreateResult =
   | { readonly data?: undefined; readonly error: unknown }
 
 type SessionGetResult = {
-  readonly data?: { readonly directory?: string }
+  readonly data?: { readonly id?: string; readonly parentID?: string; readonly directory?: string; readonly agent?: string }
   readonly error?: unknown
 }
 
@@ -42,6 +42,7 @@ export interface OmoAgentClient {
     readonly create: (input: {
       readonly body: Record<string, unknown>
       readonly query?: { readonly directory?: string }
+      readonly signal?: AbortSignal
     }) => Promise<SessionCreateResult>
     readonly get: (input: SessionPathInput) => Promise<SessionGetResult>
     readonly messages: (input: SessionPathInput | (SessionPathInput & { readonly query?: SessionMessagesQuery })) => Promise<unknown>
@@ -90,6 +91,7 @@ export interface SyncSessionCreatedEvent {
 }
 
 export interface DelegateTaskToolOptions {
+  autopilotRuntime?: import("../../features/autopilot").AutopilotRuntime
   manager: BackgroundManager
   client: OpencodeClient
   directory: string

@@ -11,6 +11,7 @@ Complete reference for Oh My OpenCode plugin configuration. Every omo harness re
   - [Quick Start Example](#quick-start-example)
 - [Core Concepts](#core-concepts)
   - [Agents](#agents)
+  - [Autopilot (OpenCode)](#autopilot-opencode)
   - [Categories](#categories)
   - [Model Resolution](#model-resolution)
   - [Model Profiles](#model-profiles)
@@ -450,6 +451,159 @@ This table mirrors the authoritative hardcoded category fallback chains: the cha
 Run `bunx oh-my-openagent doctor --verbose` to see effective model resolution for your config.
 
 ---
+
+### Autopilot (OpenCode)
+
+Autopilot is an optional, synchronous assessment subagent called through the native `task` tool. Sisyphus retains orchestration. The current delivery returns a scoped decision with `effect: "not_attempted"`; it does not update tasks, grant permissions or approve publication. Mandatory TaskUpdate enforcement belongs to [Issue #3](https://github.com/Artifaktory/oh-my-openagent/issues/3). See the [implemented protocol](../changes/omo-ap-002/implementation.md) and [verification surfaces and qualification limits](../changes/omo-ap-002/verification.md). [Issue #2](https://github.com/Artifaktory/oh-my-openagent/issues/2) owns final evidence, reviews and acceptance.
+
+#### Operator enrollment and withdrawal
+
+The authority block is `[opencode].autopilot`, including that block in a user-declared, host-selected profile. It is separate from ordinary agent/model precedence. Only the user layer can enroll a workspace and its task, policy and evidence roots. No authority is enabled by default. Startup discovery omits Autopilot when its validated configuration cannot produce an enabled subagent.
+
+This example shows the actual configuration shape. Replace `/work/project` with the existing canonical absolute workspace path and `provider/model` with an available native model ID. Create the non-secret input directories and publish the policy manifest before invoking. This is an operator configuration example, not an instruction to change an installed profile during qualification.
+
+```jsonc
+{
+  "[opencode]": {
+    "autopilot": {
+      "format_version": "1",
+      "mode": "on",
+      "enrollments": [{
+        "id": "project-review",
+        "workspace": "/work/project",
+        "task_store_roots": ["tasks"],
+        "policy_roots": ["policy"],
+        "evidence_roots": ["evidence"],
+        "manifest": "policy/manifest.json",
+        "sources": [{
+          "id": "review-rules",
+          "channel": "rule",
+          "kind": "file",
+          "source": "policy/rules.md"
+        }]
+      }],
+      "limits": { "timeout_ms": 120000, "max_fallbacks": 1 }
+    },
+    "agents": {
+      "autopilot": { "model": "provider/model", "reasoning": "high" }
+    }
+  }
+}
+```
+
+`format_version` is required. The operator must explicitly supply `mode: "on"` or `"off"`. Each enrollment requires every field shown above; `sources` records identities, while the manifest adds content hashes. At most 32 enrollments, roots per root list, and source descriptors are supported. The selected workspace must match exactly; multiple matching enrollments are invalid. `enrollment_ids`, when present, selects IDs from the operator's declared enrollments.
+
+A project may select a permitted subset, lower limits or withdraw with `[opencode].autopilot: { "format_version": "1", "mode": "off" }` or an empty `enrollment_ids` array. It cannot add `enrollments`, widen limits or turn operator-off authority on. `disabled_agents: ["autopilot"]` and `agents.autopilot.disable: true` also withdraw availability. Missing, invalid or withdrawn authority is distinct from explicit operator off; none creates an approval or changes TaskUpdate behavior in this delivery.
+
+| Limit | Default and maximum | Minimum |
+| --- | --- | --- |
+| `timeout_ms` | 120000, including admission, dispatch and fallback | 1 |
+| `max_fallbacks` | 1 | 0 |
+| `max_file_bytes` | 65536 | 1 |
+| `max_total_bytes` | 262144 per bounded capture | 1 |
+| `max_sources` | 32 | 1 |
+
+#### Native models, reasoning and permissions
+
+Use the existing `agents.autopilot` settings, model catalog, categories and profiles. Shared base, `[opencode]`, selected profile base and selected profile `[opencode]` views apply in that order, with user then project layers within each view and the resolved model overlay afterward. Host profile selection follows `OMO_PROFILE`, `OCX_PROFILE`, then the supported `OPENCODE_CONFIG_DIR` profile path. Authority uses only a selected profile declared in the user layer; a project profile cannot enroll itself.
+
+`model` remains supported. `models` supplies an ordered chain on the agent or its category: its first entry supplies primary settings and the rest supply fallbacks, replacing corresponding standalone chain settings. Entries may be model strings or supported per-model objects. Catalog aliases resolve through the native loader. Category settings provide defaults; direct agent settings override them. A task invocation still names `subagent_type: "autopilot"`; select its category in configuration, not in that task call.
+
+`reasoning` is the preferred setting; `variant` and `reasoningEffort` remain native compatibility aliases. For direct agent fields, precedence is `reasoning`, then `variant`, then `reasoningEffort`, followed by category defaults. The shared [reasoning normalizer](../../packages/model-core/src/reasoning-level.ts) recognizes canonical levels and `auto`, maps `none` to `off`, and preserves custom variant names through its passthrough route. Autopilot accepts a custom `reasoning` or `variant` only when native capabilities declare it for the selected model, including a captured fallback. Unknown custom values or missing capability metadata fail with `invalid_configuration` before child admission; there is no Autopilot-only fixed reasoning list. This support check does not prove every provider implements the requested semantics.
+
+Supported sampling/token/thinking settings retain their native meanings. `fallback_models` is the compatibility chain setting. The runtime captures one primary and at most one fallback within the total deadline, creates a fresh child for each attempt, and records the actual model and observed reasoning. With no explicit model it uses native model resolution and available defaults; the feature requires no particular provider. Explicit unavailable/disabled models and invalid settings fail admission rather than becoming a broader default. A runtime failure can use only the already captured fallback; it cannot select an unbounded replacement chain.
+
+For example, merge these native settings into the enrolled user configuration above. Replace the model IDs with available models and select the user-declared `careful` profile through the host when needed:
+
+```jsonc
+{
+  "models": {
+    "review-model": { "model": "provider/primary", "reasoning": "high" }
+  },
+  "[opencode]": {
+    "categories": {
+      "review": { "model": "provider/category", "reasoning": "low" }
+    },
+    "agents": {
+      "autopilot": { "category": "review", "model": "review-model" }
+    }
+  },
+  "profiles": {
+    "careful": {
+      "[opencode]": {
+        "agents": {
+          "autopilot": {
+            "models": [
+              { "model": "provider/primary", "reasoning": "max" },
+              { "model": "provider/fallback", "reasoning": "high" }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+The direct alias selects `provider/primary` with its catalog reasoning ahead of the category default. With `careful` selected, the ordered agent chain supplies primary `max` and fallback `high` settings. A custom value such as `deliberate` is usable only if the selected model declares that variant. The [native configuration loader](../../packages/omo-opencode/src/plugin-config/omo-config-chain.ts), [Autopilot projection](../../packages/omo-opencode/src/features/autopilot/native-config.ts) and [owner cases](../../packages/omo-opencode/src/features/autopilot/native-config.test.ts) define these paths; the [native driver cases](../../script/qa/autopilot-config-cases.ts) separate configuration transport observations from actual model judgment.
+
+Autopilot always has `mode: "subagent"`. It rejects `providerOptions`, `ultrawork`, `compaction`, category `provider_options`, invalid token/thinking budgets and attempts to enable tools outside the fixed ceiling. Generic options elsewhere in this reference do not override these restrictions.
+
+The default is **no tools**: captured evidence arrives in the request. Only `read`, `glob` and `grep` may be enabled through `tools` or native `permission`. Direct tool settings override category tool settings; an explicit permission value (`allow`, `ask` or `deny`) determines admission for that tool, and `disabled_tools` always denies it. Mandatory runtime checks restrict reads/searches to enrolled evidence roots and reject traversal, secret paths, symlink escapes, unexpected arguments and recursive delegation. Write/edit, shell, task/team tools and unknown tools cannot be enabled. These are runtime boundaries within a trusted host, not an operating-system sandbox.
+
+#### Publish one complete policy
+
+The policy manifest is strict JSON with `format_version: "1"`, a nonempty `revision`, and an ordered `sources` array. Each entry has exactly `id`, `channel`, `kind`, `source` and lowercase hexadecimal `sha256`. Its identity must match an operator-enrolled source. At least one `rule` file is required. IDs and channel/kind/source identities must be unique; `prompt`, `prompt_append` and `category_append` each occur at most once.
+
+For the configuration example above, `policy/rules.md` can contain the following UTF-8 line with exactly one LF terminator and no BOM:
+
+```text
+Require evidence for the exact task and subject revision.
+```
+
+Its matching `policy/manifest.json` is:
+
+```json
+{
+  "format_version": "1",
+  "revision": "rules-A",
+  "sources": [{
+    "id": "review-rules",
+    "channel": "rule",
+    "kind": "file",
+    "source": "policy/rules.md",
+    "sha256": "b7aff2315d58bd9df477a5956e9f5b8575cbd728d2ebae81dbad1ac1853d7bce"
+  }]
+}
+```
+
+Recompute the hash if the bytes change, including an editor changing LF to CRLF. This minimal example selects no native prompt or skills; adding any requires the corresponding enrollment and manifest entries.
+
+| Channel | Source identity and hashed payload |
+| --- | --- |
+| `rule` | `kind: "file"`; enrolled file reference; exact UTF-8 file bytes |
+| `prompt`, `prompt_append`, `category_append` | File URI settings resolve to enrolled canonical file paths; inline settings use their exact native configuration origin, including file path and field prefix, and hash the effective string |
+| `skill`, `caller_skill` | `kind: "inline"`; `id` is the native skill name and `source` its enrolled absolute file path; hash the parsed, trimmed skill body returned by the bounded native reader |
+
+Native prompt/append/category/skill sources must all be enrolled, even inline values. Manifest non-rule entries must exactly match the selected native source identities and their order: category append, direct prompt, direct append, configured skills, caller skills. Omitting or reordering one fails capture. For prompt file settings, use an approved absolute `file:///` URI or a `file://./` workspace-relative URI and enroll the resolved file path. Autopilot rejects home-relative prompt URIs and does not use the generic warning-placeholder fallback. Policy files are bounded UTF-8 `.md`, `.txt`, `.json` or `.jsonc` files; the manifest itself must parse as strict JSON. Remote, credential, traversal and symlink-redirected sources are rejected. Skill frontmatter cannot select a model, subtask or MCP; a declared agent must resolve to Autopilot.
+
+The fixed factory instructions and decision protocol remain outside the editable boundary. Skills precede the editable prompt portion; direct `prompt` replaces category append there, direct `prompt_append` follows it, and ordered rule files follow the fixed wrapper and editable portion. Rule text cannot change protocol validation, receipt ownership, deadlines, permissions or effect authority. Ambient rules and retained transcript text are not authoritative policy sources.
+
+To apply and revert a rule change:
+
+1. Preserve the last published files, manifest and source identities. Change only the enrolled behavioral rules, guidance or examples.
+2. Compute SHA-256 from the exact resulting file bytes or effective inline/skill payload. Preserve intended encoding and line endings. Update all affected manifest descriptors and assign a new publication `revision`.
+3. Write the source files first, then atomically replace the manifest last. A file-only edit, missing file, mismatched digest or concurrent partial publication fails with bounded non-admission; there is no cached-policy fallback.
+4. Invoke a fresh Autopilot child from the same live parent. The next invocation reads the new set without rebuilding or restarting. For A/B/revert qualification, keep subject and evidence fixed: publish A, publish B with a changed evidence rule, then restore A's bytes under a new revision and manifest. Record actual decisions and source identities; expected outcomes alone are not evidence.
+5. Never continue the previous Autopilot child with `task_id`. Parent reuse is supported; old-child continuation and background Autopilot calls are rejected.
+
+To remove a selected source, remove its active native configuration selection when applicable and publish the corresponding manifest change with a new revision. Keep at least one rule file. Deleting a file while the publication still references it fails as `source_unavailable`; leaving a selected native prompt/skill out of the manifest fails as `source_unenrolled`. Conflicting descriptors or malformed manifests fail as `invalid_manifest`; an unpublished content edit fails as `policy_mismatch`. Removal never silently reuses cached instructions or widens authority. Preserve the previous complete publication for recovery.
+
+Capture rereads native configuration, selected sources and the manifest, checks identities/hashes, and freezes one coherent instruction set. A behavioral-policy/model edit after capture applies to later invocations; the in-flight call retains its snapshot. A change during capture can fail as `source_changed`. Operator disable, enrollment/ceiling revocation, cancellation or deadline expiry invalidates a pending result. Parent deletion/error and runtime disposal also stop owned work.
+
+On failure, preserve the bounded error and fix the actual input before a new invocation. On restart, old child transcripts cannot restore private receipt ownership; start a fresh assessment and reconcile persisted state. Public hashes and metadata identify captured inputs but do not attest evidence truth, human approval or task effects. Keep secrets out of enrolled inputs and retain only redacted diagnostics, source identities and digests in QA records.
+
+The authoritative field definitions are [operator configuration](../../packages/omo-opencode/src/config/schema/autopilot.ts), [native agent overrides](../../packages/omo-opencode/src/config/schema/agent-overrides.ts) and [policy manifest](../../packages/omo-opencode/src/features/autopilot/policy-schema.ts). Examples and real OpenCode behavior remain subject to the [recorded verification gates](../changes/omo-ap-002/verification.md).
 
 ## Task System
 

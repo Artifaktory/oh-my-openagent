@@ -14,6 +14,19 @@ function makeBase(overrides: Partial<AgentConfig> = {}): AgentConfig {
 }
 
 describe("applyCategoryOverride", () => {
+  test("#given deferred native instructions #when applying overrides #then numeric settings compose without file materialization", () => {
+    const base = makeBase({ prompt: "fixed fixture" })
+    const override = { model: "provider/direct", category: "review", prompt: "file://./missing-prompt.md",
+      prompt_append: "file://./missing-append.md", skills: ["unresolved"], temperature: 0.4 }
+    const categories = { review: { model: "provider/category", prompt_append: "file://./missing-category.md", reasoning: "high" as const } }
+    const result = applyOverrides(base, override, categories, undefined, true)
+    expect(result.model).toBe("provider/direct")
+    expect(result.temperature).toBe(0.4)
+    expect(result.variant).toBe("high")
+    expect(result.prompt).toBe(base.prompt)
+    expect(result.skills).toBeUndefined()
+  })
+
   describe("#given canonical reasoning on category", () => {
     test("lowers category reasoning to variant on the agent config", () => {
       // given

@@ -10,6 +10,8 @@ import { applyOverrides } from "./agent-overrides"
 import { applyEnvironmentContext } from "./environment-context"
 import { applyModelResolution, getFirstFallbackModel } from "./model-resolution"
 import { log } from "../../shared/logger"
+import { projectAutopilotNativeConfig } from "../../features/autopilot/native-config"
+import { AutopilotError } from "../../features/autopilot/types"
 
 export function collectPendingBuiltinAgents(input: {
   agentSources: Record<BuiltinAgentName, import("../agent-builder").AgentSource>
@@ -58,6 +60,19 @@ export function collectPendingBuiltinAgents(input: {
     if (agentName === "atlas") continue
     if (agentName === "sisyphus-junior") continue
     if (disabledAgents.some((name) => name.toLowerCase() === agentName.toLowerCase())) continue
+
+    if (agentName === "autopilot") {
+      try {
+        const projection = projectAutopilotNativeConfig(agentOverrides, { availableModels, systemDefaultModel })
+        const config = structuredClone(projection.agent)
+        pendingAgentConfigs.set(name, config)
+        const metadata = agentMetadata[agentName]
+        if (metadata) availableAgents.push({ name: agentName, description: config.description ?? "", metadata })
+      } catch (error) {
+        if (!(error instanceof AutopilotError)) throw error
+      }
+      continue
+    }
 
     const override = agentOverrides[agentName]
       ?? Object.entries(agentOverrides).find(([key]) => key.toLowerCase() === agentName.toLowerCase())?.[1]

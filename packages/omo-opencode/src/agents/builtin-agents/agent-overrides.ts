@@ -13,7 +13,8 @@ import { resolvePromptAppend } from "./resolve-file-uri"
 export function applyCategoryOverride(
   config: AgentConfig,
   categoryName: string,
-  mergedCategories: Record<string, CategoryConfig>
+  mergedCategories: Record<string, CategoryConfig>,
+  deferInstructions = false,
 ): AgentConfig {
   const categoryConfig = mergedCategories[categoryName]
   if (!categoryConfig) return config
@@ -29,7 +30,7 @@ export function applyCategoryOverride(
   if (categoryConfig.top_p !== undefined) result.top_p = categoryConfig.top_p
   if (categoryConfig.maxTokens !== undefined) result.maxTokens = categoryConfig.maxTokens
 
-  if (categoryConfig.prompt_append && typeof result.prompt === "string") {
+  if (!deferInstructions && categoryConfig.prompt_append && typeof result.prompt === "string") {
     result.prompt = result.prompt + "\n" + resolvePromptAppend(categoryConfig.prompt_append)
   }
 
@@ -39,10 +40,15 @@ export function applyCategoryOverride(
 export function mergeAgentConfig(
   base: AgentConfig,
   override: AgentOverrideConfig,
-  directory?: string
+  directory?: string,
+  deferInstructions = false,
 ): AgentConfig {
   const migratedOverride = migrateAgentConfig(override as Record<string, unknown>) as AgentOverrideConfig
   const { prompt_append, reasoning, ...rest } = migratedOverride
+  if (deferInstructions) {
+    delete rest.prompt
+    delete rest.skills
+  }
   const merged = deepMerge(base, rest as Partial<AgentConfig>)
 
   // Lower canonical `reasoning` to OpenCode's `variant` at build time so that
@@ -53,11 +59,11 @@ export function mergeAgentConfig(
     merged.variant = reasoning
   }
 
-  if (merged.prompt && typeof merged.prompt === 'string' && merged.prompt.startsWith('file://')) {
+  if (!deferInstructions && merged.prompt && typeof merged.prompt === 'string' && merged.prompt.startsWith('file://')) {
     merged.prompt = resolvePromptAppend(merged.prompt, directory)
   }
 
-  if (prompt_append && merged.prompt) {
+  if (!deferInstructions && prompt_append && merged.prompt) {
     merged.prompt = merged.prompt + "\n" + resolvePromptAppend(prompt_append, directory)
   }
 
@@ -68,16 +74,17 @@ export function applyOverrides(
   config: AgentConfig,
   override: AgentOverrideConfig | undefined,
   mergedCategories: Record<string, CategoryConfig>,
-  directory?: string
+  directory?: string,
+  deferInstructions = false,
 ): AgentConfig {
   let result = config
   const overrideCategory = (override as Record<string, unknown> | undefined)?.category as string | undefined
   if (overrideCategory) {
-    result = applyCategoryOverride(result, overrideCategory, mergedCategories)
+    result = applyCategoryOverride(result, overrideCategory, mergedCategories, deferInstructions)
   }
 
   if (override) {
-    result = mergeAgentConfig(result, override, directory)
+    result = mergeAgentConfig(result, override, directory, deferInstructions)
   }
 
   return result

@@ -18,6 +18,7 @@ import { createSkillContext } from "./skill-context"
 import { createRuntimeSkillsResolver, readRuntimeHostSkills } from "./runtime-skill-resolver"
 
 export function createCoreTools(args: {
+  readonly autopilotRuntime?: import("../features/autopilot").AutopilotRuntime
   readonly ctx: PluginContext
   readonly pluginConfig: OhMyOpenCodeConfig
   readonly managers: Pick<Managers, "backgroundManager" | "tmuxSessionManager" | "skillMcpManager" | "modelFallbackControllerAccessor">
@@ -50,6 +51,7 @@ export function createCoreTools(args: {
       (await createSkillContext({ directory: ctx.directory, pluginConfig, hostSkills })).mergedSkills,
   })
   const delegateTask = factories.createDelegateTask({
+    autopilotRuntime: args.autopilotRuntime,
     manager: managers.backgroundManager,
     client: ctx.client,
     directory: ctx.directory,

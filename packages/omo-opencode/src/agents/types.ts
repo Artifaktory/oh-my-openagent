@@ -161,6 +161,7 @@ export function isGpt6Model(model: string): boolean {
 }
 
 export type BuiltinAgentName =
+  | "autopilot"
   | "sisyphus"
   | "hephaestus"
   | "oracle"

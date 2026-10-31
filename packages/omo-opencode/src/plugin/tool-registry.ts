@@ -27,6 +27,7 @@ export type ToolRegistryResult = {
 }
 
 export function createToolRegistry(args: {
+  autopilotRuntime?: import("../features/autopilot").AutopilotRuntime
   ctx: PluginContext
   pluginConfig: OhMyOpenCodeConfig
   managers: Pick<Managers, "backgroundManager" | "tmuxSessionManager" | "skillMcpManager" | "modelFallbackControllerAccessor" | "monitorManager">
@@ -51,6 +52,7 @@ export function createToolRegistry(args: {
   const taskSystemEnabled = getTaskSystemEnabled(pluginConfig)
   const allTools = {
     ...createCoreTools({
+      autopilotRuntime: args.autopilotRuntime,
       ctx,
       pluginConfig,
       managers,
