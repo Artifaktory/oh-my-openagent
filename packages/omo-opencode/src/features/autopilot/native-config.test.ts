@@ -10,15 +10,15 @@ import * as providerCache from "../../shared/connected-providers-cache"
 async function fixture(run: (value: {
   project: string
   configPath: string
-  write: (agent: Record<string, unknown>, extra?: Record<string, unknown>, sources?: EnrolledSource[]) => void
+  write: (agent: Record<string, unknown>, extra?: Record<string, unknown>, sources?: EnrolledSource[], limits?: { max_fallbacks: number }) => void
   refresh: (available?: Set<string>, profile?: string) => ReturnType<typeof refreshAutopilotNativeConfig>
 }) => Promise<void> | void): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "autopilot-native-"))
   const project = join(root, "project")
   const configPath = join(root, ".omo", "omo.jsonc")
   for (const directory of [join(root, ".omo"), join(project, "policy"), join(project, "tasks"), join(project, "evidence")]) mkdirSync(directory, { recursive: true })
-  const write = (agent: Record<string, unknown>, extra: Record<string, unknown> = {}, sources: EnrolledSource[] = []) => writeFileSync(configPath, JSON.stringify({
-    "[opencode]": { autopilot: { format_version: "1", mode: "on", enrollments: [{ id: "workspace", workspace: project,
+  const write = (agent: Record<string, unknown>, extra: Record<string, unknown> = {}, sources: EnrolledSource[] = [], limits?: { max_fallbacks: number }) => writeFileSync(configPath, JSON.stringify({
+    "[opencode]": { autopilot: { format_version: "1", mode: "on", ...(limits ? { limits } : {}), enrollments: [{ id: "workspace", workspace: project,
       task_store_roots: ["tasks"], policy_roots: ["policy"], evidence_roots: ["evidence"], manifest: "policy/manifest.json", sources }] }, agents: { autopilot: agent } }, ...extra,
   }))
   try { await run({ project, configPath, write, refresh: (available = new Set(["provider/default", "provider/direct", "provider/category", "provider/fallback"]), profile) =>
@@ -50,10 +50,49 @@ describe("Autopilot native refresh", () => {
     expect(f.refresh(undefined, "review").agent).toMatchObject({ model: "provider/default", variant: "high" })
   }))
 
-  test("#given native reasoning aliases #when refreshed #then canonical reasoning has priority", () => fixture(f => {
-    for (const settings of [{ variant: "high" }, { reasoningEffort: "high" }, { reasoning: "high", variant: "low", reasoningEffort: "low" }]) {
+  test("R1-category-unavailable #given unavailable explicit category and available default #when refreshing #then reject before admission", () => fixture(f => {
+    f.write({ category: "review" }, { categories: { review: { model: "provider/missing" } } }, [], { max_fallbacks: 0 })
+    expect(() => f.refresh()).toThrow("invalid_configuration")
+  }))
+
+  test.each(["direct", "category"] as const)("R1-explicit-%s #given an eligible built-in alternative but no declared fallback #when refreshing #then capture only the selected primary", selection => fixture(f => {
+    f.write(selection === "direct" ? { model: "provider/direct" } : { category: "review" },
+      { categories: { review: { model: "provider/direct" } } })
+    const value = f.refresh(new Set(["provider/default", "provider/direct", "openai/gpt-6-astra"]))
+    expect(value.models.map(entry => entry.model)).toEqual(["provider/direct"])
+    expect(value.agent.fallback_models).toEqual([])
+  }))
+
+  test.each([
+    { id: "valid-category", agent: { category: "review", fallback_models: [] }, category: { model: "provider/category" }, expected: ["provider/category"] },
+    { id: "direct-over-category", agent: { model: "provider/direct", category: "review", fallback_models: [] }, category: { model: "provider/missing" }, expected: ["provider/direct"] },
+    { id: "declared-direct", agent: { model: "provider/direct", fallback_models: ["provider/fallback"] }, category: {}, expected: ["provider/direct", "provider/fallback"] },
+    { id: "declared-category", agent: { category: "review" }, category: { model: "provider/category", fallback_models: ["provider/fallback"] }, expected: ["provider/category", "provider/fallback"] },
+    { id: "empty-chain", agent: { model: "provider/direct", fallback_models: [] }, category: {}, expected: ["provider/direct"] },
+    { id: "single-models-entry", agent: { models: ["provider/direct"] }, category: {}, expected: ["provider/direct"] },
+    { id: "zero-cap", agent: { model: "provider/direct", fallback_models: ["provider/fallback"] }, category: {}, cap: 0, expected: ["provider/direct"] },
+  ])("R1-control-$id #given native selection boundaries #when refreshing #then preserve the declared chain", row => fixture(f => {
+    f.write(row.agent, { categories: { review: row.category } }, [], row.cap === undefined ? undefined : { max_fallbacks: row.cap })
+    const value = f.refresh(new Set(["provider/default", "provider/direct", "provider/category", "provider/fallback", "openai/gpt-6-astra"]))
+    expect(value.models.map(entry => entry.model)).toEqual(row.expected)
+  }))
+
+  test("R1-control-default-chain #given no explicit primary and two eligible native defaults #when refreshing #then preserve the built-in fallback", () => fixture(f => {
+    f.write({})
+    const value = f.refresh(new Set(["openai/gpt-6-astra", "anthropic/claude-opus-5-5"]))
+    expect(value.models.map(entry => entry.model)).toEqual(["openai/gpt-6-astra", "anthropic/claude-opus-5-5"])
+  }))
+
+  test("R5-compatibility #given native reasoning aliases #when refreshed #then canonical reasoning and native effort precedence remain", () => fixture(f => {
+    for (const [settings, expected] of [
+      [{ variant: "high" }, "high"],
+      [{ reasoningEffort: "high" }, "high"],
+      [{ reasoning: "high", variant: "low", reasoningEffort: "low" }, "high"],
+      [{ variant: "high", reasoningEffort: "low" }, "low"],
+      [{ reasoning: "max", variant: "high", reasoningEffort: "low" }, "max"],
+    ] as const) {
       f.write({ model: "provider/direct", ...settings })
-      expect(f.refresh().agent.variant).toBe("high")
+      expect(f.refresh().agent.variant).toBe(expected)
     }
   }))
 

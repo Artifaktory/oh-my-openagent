@@ -6,11 +6,12 @@ import { check, digest, Evidence, object, verifyManifest } from "./autopilot-evi
 import type { Data } from "./autopilot-evidence"
 import { Fixtures } from "./autopilot-fixtures"
 import { Host, realSessionCount } from "./autopilot-host"
+import { RootIsolation } from "./autopilot-root-isolation"
 import { startProvider } from "./autopilot-provider"
 import type { Provider } from "./autopilot-provider"
 import { modelPolicyCases, policyNegativeCases } from "./autopilot-policy-cases"
-import { nativeConfigCases, fallbackCase, offCases, ordinaryCase } from "./autopilot-config-cases"
-import { cancellationCase, lifecycleCases, malformedCase, toolCases } from "./autopilot-negative-cases"
+import { agent, nativeConfigCases, fallbackCase, offCases, ordinaryCase } from "./autopilot-config-cases"
+import { cancellationCase, childDeletionCase, deadlineRecoveryCases, historyRestartCase, lifecycleCases, malformedCase, toolCases } from "./autopilot-negative-cases"
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ args: Bun.argv.slice(2), strict: true, options: {
@@ -34,6 +35,8 @@ async function main(): Promise<void> {
   const evidence = new Evidence(directory, mode)
   let fixture: Fixtures | undefined, provider: Provider | undefined, host: Host | undefined, timer: ReturnType<typeof setTimeout> | undefined
   let before: Data | undefined, failed = false, primary: Data = {}
+  const roots = new RootIsolation(), restarts: Data[] = []
+  evidence.metadata.fixtures = roots.records
   try {
     check(["fixture", "real"].includes(mode), "invalid_mode")
     check(values.mode !== "real" || values["backend-url"], "actual_backend_required")
@@ -49,15 +52,26 @@ async function main(): Promise<void> {
     const binary = values["opencode-bin"] ?? Bun.which("opencode.exe") ?? Bun.which("opencode")
     check(binary, "opencode_binary_unavailable")
     before = realSessionCount(values["real-db"])
-    fixture = await Fixtures.create(repo); provider = startProvider(values["backend-url"])
-    await fixture.hostConfig(path.resolve(plugin), provider.url)
+    provider = startProvider(values["backend-url"])
     timer = setTimeout(() => { failed = true; evidence.metadata.fatal_error = "driver_budget_exhausted"; provider?.stop(); void host?.stop() }, budget * 1000)
-    host = await Host.start(fixture, provider, binary, values["expected-version"] ?? "1.19.4")
+    const startFixture = async () => {
+      const next = await Fixtures.create(repo, created => roots.add(created))
+      fixture = next
+      check(provider, "fixture_provider_missing")
+      await next.hostConfig(path.resolve(plugin), provider.url)
+      const started = await Host.start(next, provider, binary, values["expected-version"] ?? "1.19.4", undefined,
+        cleanup => roots.startupCleanup(next, cleanup))
+      host = started; roots.attach(next, started)
+      await roots.baseline(next)
+      return { fixture: next, provider, host: started }
+    }
+    const context = await startFixture()
+    fixture = context.fixture; host = context.host
     evidence.metadata.runtime = { version: values["expected-version"], platform: process.platform, arch: process.arch,
       binary, workspace: fixture.workspace, fake_home: fixture.home, HOME_present: Object.hasOwn(fixture.env, "HOME"),
       isolated_xdg: Object.entries(fixture.env).filter(([key]) => key.startsWith("XDG_")).map(([, value]) => value),
       parent_session_id: host.parent, native_agent: host.nativeAgent }
-    const context = { fixture, provider, host }, stable = await fixture.contentIdentity()
+    const stable = await fixture.contentIdentity()
     await evidence.run("native-task", async () => {
       primary = await context.host.invoke({ id: "initial", arguments: context.fixture.arguments() })
       const result = await context.host.verify(primary)
@@ -73,23 +87,45 @@ async function main(): Promise<void> {
     await evidence.run("ordinary-agent", () => ordinaryCase(context))
     await evidence.run("lifecycle-rejections", () => lifecycleCases(context, primary))
     await evidence.run("malformed-result", () => malformedCase(context))
+    await roots.finish(context.fixture)
+    host = undefined
+    Object.assign(context, await startFixture())
     await evidence.run("tool-boundary", () => toolCases(context))
     await evidence.run("cancellation", () => cancellationCase(context))
-    check(JSON.stringify(stable) === JSON.stringify(await fixture.contentIdentity()), "task_store_effect_detected")
+    await evidence.run("short-budget-recovery", () => deadlineRecoveryCases(context))
+    await evidence.run("child-deletion-recovery", () => childDeletionCase(context))
+    await evidence.run("custom-name-restart", () => historyRestartCase(context, async (name, ordinaryName) => {
+      await roots.verify(context.fixture)
+      const prior = context.host, cleanup = await roots.stop(prior)
+      host = undefined
+      check(cleanup.process_exited === true && cleanup.sse_closed === true, "prior_native_process_not_stopped")
+      const transition: Data = { prior_native_agent: prior.nativeAgent, prior_pid: prior.process.pid, parent_session_id: prior.parent, cleanup }
+      restarts.push(transition)
+      evidence.metadata.restarts = restarts
+      await context.fixture.reset(); agent(context, { model: "qa/judge", reasoning: "max", displayName: name })
+      await context.fixture.writeConfigs(); await context.fixture.hostConfig(path.resolve(plugin), context.provider.url, ordinaryName)
+      host = await Host.start(context.fixture, context.provider, binary, values["expected-version"] ?? "1.19.4", prior.parent,
+        receipt => roots.startupCleanup(context.fixture, receipt))
+      roots.attach(context.fixture, host)
+      context.host = host
+      await roots.verify(context.fixture)
+      Object.assign(transition, { next_pid: host.process.pid, next_native_agent: host.nativeAgent, retained_parent: host.parent === prior.parent })
+      return host
+    }))
+    await roots.verify(context.fixture)
   } catch (error) {
     failed = true
     evidence.metadata.fatal_error = error instanceof Error && /^[a-z0-9_:.-]{1,160}$/i.test(error.message) ? error.message : "operation_failed_redacted"
   } finally {
     if (timer) clearTimeout(timer)
     if (provider) evidence.metadata.provider = provider.records
-    if (host) evidence.metadata.native_observations = host.observations
     if (failed && host) {
       try { evidence.metadata.child_message_metadata = await host.diagnosticMessages() }
       catch { evidence.metadata.child_message_metadata_unavailable = true }
     }
-    try { evidence.metadata.cleanup = host ? await host.stop() : { process_started: false }; provider?.stop()
-      if (fixture) { await fixture.cleanup(); object(evidence.metadata.cleanup).temporary_root_removed = true } }
+    try { evidence.metadata.cleanup = await roots.finishAll(); provider?.stop() }
     catch { failed = true; evidence.metadata.cleanup_failure = true; provider?.stop() }
+    evidence.metadata.native_observations = roots.observations
     try {
       if (before) { const after = realSessionCount(String(before.path)); evidence.metadata.real_db = { before, after, unchanged: JSON.stringify(before) === JSON.stringify(after) }
         check(JSON.stringify(before) === JSON.stringify(after), "real_database_session_count_changed") }

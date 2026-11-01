@@ -146,13 +146,14 @@ export function projectAutopilotNativeConfig(agents: object | undefined, options
   if (category?.provider_options !== undefined) throw new AutopilotError("invalid_configuration")
   const declaredFallbacks = override.fallback_models ?? category?.fallback_models
   let fallbacks = modelEntries(declaredFallbacks)
-  const resolution = resolveModelPipeline({ intent: { userModel: override.model, categoryDefaultModel: category?.model,
+  const explicitModel = override.model ?? category?.model
+  const resolution = resolveModelPipeline({ intent: { userModel: explicitModel,
     userFallbackModels: fallbacks.map(entry => entry.model) }, constraints: { availableModels: options.availableModels },
     policy: { fallbackChain: AGENT_MODEL_REQUIREMENTS.autopilot.fallbackChain, systemDefaultModel: options.systemDefaultModel } })
   if (!resolution || !resolution.model.includes("/") || (options.availableModels.size > 0 && !options.availableModels.has(resolution.model))) {
     throw new AutopilotError("invalid_configuration")
   }
-  if (declaredFallbacks === undefined && binding.limits.max_fallbacks > 0) {
+  if (!explicitModel && declaredFallbacks === undefined && binding.limits.max_fallbacks > 0) {
     const remaining = new Set([...options.availableModels].filter(model => model !== resolution.model
       && !isProviderDisabled(model, binding.config.disabled_providers ?? [])))
     if (remaining.size > 0) {

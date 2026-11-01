@@ -16,7 +16,7 @@ import { autopilotAuthorityIdentity, getAutopilotBinding } from "./authority"
 import { createAutopilotChildRegistry, isAutopilotAgent, isAutopilotTranscript } from "./child-registry"
 import { captureAssessment, captureHostAssessment } from "./decision-validation"
 import { composeInstructionSnapshot } from "./instruction-snapshot"
-import { refreshAutopilotNativeConfig, readAutopilotInstructionView } from "./native-config"
+import { projectAutopilotNativeConfig, refreshAutopilotNativeConfig, readAutopilotInstructionView } from "./native-config"
 import { readPolicyFile } from "./policy-file-reader"
 import { capturePolicySnapshot } from "./policy-snapshot"
 import { captureGateRequest } from "./protocol"
@@ -64,7 +64,7 @@ export function createAutopilotRuntime(options: {
     async guardSession(sessionID: string, agent?: unknown): Promise<boolean> {
       if (registry.has(sessionID)) { registry.require(sessionID, agent); return true }
       if (isAutopilotName(agent)) throw new AutopilotError("unowned_child")
-      if (sessionID && agent === undefined && await hasAutopilotHistory(sessionID)) throw new AutopilotError("unowned_child")
+      if (sessionID && await hasAutopilotHistory(sessionID)) throw new AutopilotError("unowned_child")
       return false
     },
     chat: registry.chat, params: registry.params, system: registry.system, messages: registry.messages, tool: registry.tool,
@@ -89,25 +89,28 @@ export function createAutopilotRuntime(options: {
       const skills = [...callerSkills]
       const invocationID = randomUUID()
       const controller = new AbortController()
-      const guard = createSyncAdmission({ invocationId: invocationID, waiterId: `autopilot:${invocationID}`,
-        signal: controller.signal, deadline: started + 120000 }, capturedContext.abort)
+      let admission: ReturnType<typeof createSyncAdmission> | undefined
       active.set(invocationID, { parent: capturedContext.sessionID, controller })
       const stopChildren: string[] = []
       let deadline = started + 120000
-      let timer: ReturnType<typeof setTimeout> | undefined
       try {
         if (disposed) throw new AutopilotError("runtime_unavailable")
         if (isAutopilotName(capturedContext.agent) || registry.has(capturedContext.sessionID)) throw new AutopilotError("tool_forbidden")
         const assessment = captureAssessment(payload)
+        const validated = validatePluginConfig(executor.directory, options.environment)
+        const initialBinding = getAutopilotBinding(validated.config.agents)
+        if (!initialBinding || initialBinding.state !== "enabled") throw new AutopilotError("invalid_configuration")
+        deadline = started + initialBinding.limits.timeout_ms
+        const guard = createSyncAdmission({ invocationId: invocationID, waiterId: `autopilot:${invocationID}`,
+          signal: controller.signal, deadline }, capturedContext.abort)
+        admission = guard
         const modelOptions = await guard.run(readModels)
         if (!modelOptions.availableModels.size) throw new AutopilotError("invalid_configuration")
         const refresh = () => refreshAutopilotNativeConfig(executor.directory, { ...modelOptions, callerSkills: skills }, options.environment)
-        const projection = refresh()
+        const projection = projectAutopilotNativeConfig(validated.config.agents, { ...modelOptions, callerSkills: skills })
         const binding = projection.binding
         const enrollment = binding.enrollment
         if (!enrollment) throw new AutopilotError("invalid_configuration")
-        deadline = started + binding.limits.timeout_ms
-        timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()))
         const check = () => { guard.check(); if (Date.now() >= deadline) throw new AutopilotError("request_expired") }
         check()
         const authority = autopilotAuthorityIdentity(binding)
@@ -171,13 +174,12 @@ export function createAutopilotRuntime(options: {
         check()
         return { ok: true, decision: result.decision, receipt: ledger.issue(result.child.request, result.decision, result.final, result.child, authority) }
       } catch (error) {
-        const code = Date.now() >= deadline ? "request_expired" : capturedContext.abort.aborted || guard.signal.aborted ? "request_cancelled"
+        const code = Date.now() >= deadline ? "request_expired" : capturedContext.abort.aborted || admission?.signal.aborted ? "request_cancelled"
           : error instanceof AutopilotError ? error.code : error instanceof SyncAdmissionError ? error.code : "native_result_invalid"
         return { ok: false, error: code, outcome: "human_required" }
       } finally {
-        if (timer) clearTimeout(timer)
         for (const child of stopChildren) registry.stop(child)
-        controller.abort(); guard.dispose(); active.delete(invocationID)
+        controller.abort(); admission?.dispose(); active.delete(invocationID)
       }
     },
   }

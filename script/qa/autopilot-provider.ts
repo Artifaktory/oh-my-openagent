@@ -4,6 +4,7 @@ import type { Data } from "./autopilot-evidence"
 
 export interface Scenario {
   id: string; arguments: Data; backend?: "real" | "fixture"; hold?: string
+  ordinary?: boolean
   child?: "valid" | "malformed" | "read" | "outside" | "bash"
 }
 function sse(events: Data[]): Response {
@@ -56,13 +57,15 @@ export function startProvider(backendURL?: string) {
     if (route === "/scenario") { scenario = body as unknown as Scenario; return Response.json({ ok: true }) }
     if (route === "/release") { holds.get(String(body.tag))?.release.resolve(); return Response.json({ released: holds.has(String(body.tag)) }) }
     if (route === "/shutdown") { queueMicrotask(() => server.stop(true)); return Response.json({ stopping: true }) }
-    if (route !== "/v1/responses") return new Response(null, { status: 404 })
-    const selected = { ...scenario }, id = ++serial, model = String(body.model), captured = envelope(body)
+    if (!["/v1/responses", "/builtin/v1/responses"].includes(route)) return new Response(null, { status: 404 })
+    const selected = { ...scenario }, id = ++serial, model = String(body.model), captured = selected.ordinary ? {} : envelope(body)
     const request = object(captured.request), policy = object(request.policy)
     const input = Array.isArray(body.input) ? body.input : []
     const completed = (call: string) => input.some(item => object(item).type === "function_call_output" && object(item).call_id === call)
-    const record: Data = { id, case_id: selected.id, model, input_sha256: digest(JSON.stringify(body.input ?? [])), request_sha256: digest(raw),
+    const record: Data = { id, case_id: selected.id, model, provider_id: route === "/builtin/v1/responses" ? "openai" : "qa",
+      input_sha256: digest(JSON.stringify(body.input ?? [])), request_sha256: digest(raw), ordinary_data: selected.ordinary === true,
       request_digest: captured.request_digest ?? null, invocation_id: request.invocation_id ?? null,
+      request_budget_ms: typeof request.deadline === "number" && typeof request.created_at === "number" ? request.deadline - request.created_at : null,
       policy: Object.fromEntries(["revision", "manifest_digest", "policy_digest", "instruction_digest", "configuration_digest"].map(key => [key, policy[key] ?? null])),
       dispatch: request.dispatch ?? null, model_chain: request.models ?? null, permission_ceiling: request.permission_ceiling ?? null, reasoning: body.reasoning ?? null,
       tools: (Array.isArray(body.tools) ? body.tools : []).map(tool => object(tool).name).filter(name => typeof name === "string"),

@@ -5,8 +5,9 @@ import { applySessionPromptParams } from "../../shared/session-prompt-params-hel
 import { getSessionPromptParams } from "../../shared/session-prompt-params-state"
 import { createChatParamsHandler } from "../../plugin/chat-params"
 import { stripInternalInitiatorMarkers } from "../../shared/internal-initiator-marker"
+import { createAutopilotAgent } from "../../agents/autopilot"
 import type { DelegatedModelConfig } from "../../tools/delegate-task/types"
-import { canonicalJson } from "./protocol"
+import { canonicalJson, GateRequestSchema, sha256 } from "./protocol"
 import { AutopilotError, type GateRequest, type InstructionSnapshot } from "./types"
 
 export interface OwnedAutopilotChild {
@@ -36,17 +37,31 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-/** A retained private-protocol transcript only denies reuse; it never establishes ownership. */
+/** Native producer context can deny reuse after restart, but never establishes ownership. */
 export function isAutopilotTranscript(messages: unknown, matches: (agent: unknown) => boolean = isAutopilotAgent): boolean {
   if (!Array.isArray(messages)) return false
   return messages.some(message => {
     const value = record(message), info = record(value.info)
     if (matches(info.agent)) return true
-    if (info.role !== "user" || !Array.isArray(value.parts)) return false
+    if (info.role !== "user" || typeof info.agent !== "string" || !info.agent
+      || typeof info.id !== "string" || typeof info.sessionID !== "string"
+      || typeof info.system !== "string" || !Array.isArray(value.parts)) return false
+    const model = record(info.model), tools = record(info.tools)
+    if (tools["*"] !== false) return false
     return value.parts.some(part => {
       const text = record(part).text
       if (record(part).type !== "text" || typeof text !== "string" || Buffer.byteLength(text) > 266240) return false
-      try { return record(record(JSON.parse(stripInternalInitiatorMarkers(text))).request).protocol === "autopilot.gate-request.v1" }
+      try {
+        const envelope = record(JSON.parse(stripInternalInitiatorMarkers(text)))
+        const parsed = GateRequestSchema.safeParse(envelope.request)
+        if (!parsed.success || envelope.request_digest !== sha256(canonicalJson(parsed.data))) return false
+        const request = parsed.data
+        if (model.providerID !== request.dispatch.providerID || model.modelID !== request.dispatch.modelID) return false
+        const expectedTools = { "*": false, ...Object.fromEntries(request.permission_ceiling.map(tool => [tool, true])) }
+        if (canonicalJson(tools) !== canonicalJson(expectedTools)) return false
+        const factory = createAutopilotAgent(`${request.dispatch.providerID}/${request.dispatch.modelID}`).prompt
+        return typeof factory === "string" && factory.length > 0 && String(info.system).startsWith(factory + "\n\n")
+      }
       catch { return false }
     })
   })
@@ -93,7 +108,17 @@ async function validateToolPath(value: string, roots: readonly string[], workspa
 
 export function createAutopilotChildRegistry() {
   const children = new Map<string, OwnedAutopilotChild>()
+  const retired = new Set<string>()
+  const has = (sessionID: string) => children.has(sessionID) || retired.has(sessionID)
+  const stop = (sessionID: string) => {
+    const child = children.get(sessionID)
+    if (!child) return
+    child.active = false
+    children.delete(sessionID)
+    retired.add(sessionID)
+  }
   const requireChild = (sessionID: string, agent?: unknown): OwnedAutopilotChild | undefined => {
+    if (retired.has(sessionID)) throw new AutopilotError("request_cancelled")
     const child = children.get(sessionID)
     if (!child) {
       if (isAutopilotAgent(agent)) throw new AutopilotError("unowned_child")
@@ -112,15 +137,17 @@ export function createAutopilotChildRegistry() {
     }
   }
   return {
-    has: (sessionID: string) => children.has(sessionID),
+    has,
     get: (sessionID: string) => children.get(sessionID),
     require: requireChild,
     register(child: OwnedAutopilotChild) {
-      if (children.has(child.sessionID)) throw new AutopilotError("child_reuse")
+      if (has(child.sessionID)) throw new AutopilotError("child_reuse")
       children.set(child.sessionID, child)
+      child.signal.addEventListener("abort", stop.bind(undefined, child.sessionID), { once: true })
+      if (child.signal.aborted) stop(child.sessionID)
     },
-    stop(sessionID: string) { const child = children.get(sessionID); if (child) child.active = false },
-    stopAll() { for (const child of children.values()) child.active = false },
+    stop,
+    stopAll() { for (const sessionID of children.keys()) stop(sessionID) },
     chat(input: unknown, output: unknown): boolean {
       const raw = record(input), out = record(output), message = record(out.message)
       const child = requireChild(String(raw.sessionID ?? message.sessionID ?? ""), raw.agent ?? message.agent)
@@ -171,7 +198,7 @@ export function createAutopilotChildRegistry() {
       const messages = out.messages.map(record)
       const infos = messages.map(message => record(message.info))
       const sessionIDs = new Set(infos.map(info => String(info.sessionID ?? "")))
-      const ownedID = [...sessionIDs].find(id => children.has(id))
+      const ownedID = [...sessionIDs].find(has)
       const autopilot = isAutopilotTranscript(out.messages)
       const child = requireChild(ownedID ?? String(infos[0]?.sessionID ?? ""), autopilot ? "autopilot" : undefined)
       if (!child) return false

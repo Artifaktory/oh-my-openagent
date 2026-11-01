@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { createPluginInterface } from "../plugin-interface"
 import { createAutopilotRuntime } from "../features/autopilot"
 import { interceptAutopilotTask } from "../tools/delegate-task/autopilot-task"
+import { createInternalAgentTextPart } from "../shared/internal-initiator-marker"
+import { buildSyncPromptTools } from "../tools/delegate-task/sync-prompt-sender"
 
 describe("mandatory Autopilot boundary without optional hooks", () => {
   const fixture = (present = true, sessionAgent = "Autopilot") => {
@@ -54,4 +56,23 @@ describe("mandatory Autopilot boundary without optional hooks", () => {
       expect(output.args.subagent_type).toBe("sisyphus-junior")
     } finally { runtime.dispose() }
   })
+  for (const agent of ["explore", "custom-review-agent", "old-review-name"]) {
+    for (const wrapped of [false, true]) {
+      for (const present of [false, true]) {
+        test(`R3-generation-${agent}-${wrapped ? "wrapped" : "raw"}-${present ? "runtime" : "no-runtime"} #given ordinary request-shaped data #when generation transforms messages #then preserve ordinary data`, async () => {
+          const { runtime, hooks } = fixture(present, agent)
+          const text = JSON.stringify({ request: { protocol: "autopilot.gate-request.v1" } })
+          const part = wrapped ? createInternalAgentTextPart(text) : { type: "text", text }
+          const output = { messages: [{ info: { id: "msg_data", sessionID: "ses_ordinary", role: "user", agent,
+            model: { providerID: "test", modelID: "one" }, system: "Ordinary task fixture", tools: buildSyncPromptTools(agent) }, parts: [part] }] }
+          const before = structuredClone(output)
+          try {
+            await hooks["experimental.chat.messages.transform"]({}, output as never)
+            expect(output).toEqual(before)
+            expect(runtime.ownsChild("ses_ordinary")).toBe(false)
+          } finally { runtime.dispose() }
+        })
+      }
+    }
+  }
 })

@@ -44,7 +44,7 @@ export function createPluginInterface(args: {
   const guard = async (sessionID: string, agent?: unknown) => {
     if (runtime) return await runtime.guardSession(sessionID, agent) ? runtime : undefined
     if (isNamedAutopilot(agent)) throw new AutopilotError("runtime_unavailable")
-    if (sessionID && agent === undefined && typeof ctx.client?.session?.messages === "function") {
+    if (sessionID && typeof ctx.client?.session?.messages === "function") {
       const response = await ctx.client.session.messages({ path: { id: sessionID } })
       const messages = normalizeSDKResponse(response, [] as { info?: { agent?: string } }[])
       if (isAutopilotTranscript(messages, isNamedAutopilot)) throw new AutopilotError("runtime_unavailable")

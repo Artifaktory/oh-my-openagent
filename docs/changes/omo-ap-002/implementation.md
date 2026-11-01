@@ -55,6 +55,12 @@ Mandatory chat, parameter, system, message and tool boundaries own the child's i
 
 Reuse the parent for later assessments, including A/B/revert policy changes; never reuse the Autopilot child. Task-ID-only continuation also checks retained Autopilot identity. An in-flight call retains its captured behavioral rules/model; publication during capture may reject a mixed set. Authority changes are checked again before receipt issuance. Cancellation, expiry, parent deletion/error or runtime disposal invalidates pending work, and late output is not approval. Restart does not reconstruct private ownership from old transcripts or replay a decision.
 
+The [QA readiness and recovery procedure](verification.md#recovery-groups-and-qa-readiness) explains how the native driver establishes startup and ordinary-continuation prerequisites. Those controls qualify the test setup; they do not widen this assessment contract or supply a passing host result.
+
+For direct old-child rejection, the [native denial QA procedure](verification.md#strict-native-direct-denial-proof) correlates a masked HTTP error with the actual native error field and checks child lineage, message identities and provider activity before and after the request. This is QA observation of the existing guard. It adds no public error protocol, receipt authority, retry, tool permission or task effect.
+
+The driver uses [independent QA fixtures](verification.md#isolated-qa-roots) between otherwise independent group segments. This test setup preserves the existing root capacity and each segment's parent/task identity; it does not change the runtime assessment or permission contract.
+
 ## Evidence trust and recovery
 
 Operator enrollment permits the host to read particular roots. The host supplies source identities, bytes, hashes and capture/deadline times; caller-supplied attestations are not inputs. `enrolled` describes that capture boundary, not independent verification that an evidence file's claims are true, current for the business task, or approved by a human. Evidence bodies and task metadata remain untrusted data. Exact hashes establish identity, not factual correctness. The model's interpretation still needs real-provider qualification.
