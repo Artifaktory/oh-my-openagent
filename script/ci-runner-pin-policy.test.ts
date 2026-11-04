@@ -4,7 +4,8 @@ import { join } from "node:path"
 
 // GitHub moves ubuntu-latest to Ubuntu 26.04 between October 19 and November 19, 2026 (#9928).
 // A job may resolve to ubuntu-latest only if the #9928 inventory reviewed it; every other job runs
-// on an explicit image (PR CI on ubuntu-26.04, unproven release/deploy paths pinned to ubuntu-24.04).
+// on an explicit image or the approved self-hosted pool (hosted PR CI on ubuntu-26.04,
+// unproven release/deploy paths pinned to ubuntu-24.04).
 // A new job that floats on ubuntu-latest, or an entry for a job that no longer does, fails here.
 const REVIEWED_UBUNTU_LATEST_JOBS: readonly string[] = [
   "bot-merge.yml/merge",
@@ -26,7 +27,7 @@ const WORKFLOWS_DIR = join(import.meta.dir, "..", ".github", "workflows")
 const FLOATING = "ubuntu-latest"
 const PASSTHROUGH = /^\$\{\{\s*matrix\.([\w-]+)\s*\}\}$/
 // 'ubuntu-latest' as an expression result, not as the left side of a `== 'ubuntu-latest'` test.
-const RESULT_LITERAL = /(?<!==\s*)'ubuntu-latest'/
+const RESULT_LITERAL = /(?<!==\s*)'ubuntu-latest'|"ubuntu-latest"/
 
 interface Job {
   readonly "runs-on"?: unknown
@@ -73,10 +74,13 @@ function floatingJobs(): string[] {
 }
 
 describe("Ubuntu runner pin policy (#9928)", () => {
-  test("#given macOS status matrices #when required contexts are preserved #then their physical runner stays pinned to Ubuntu", () => {
+  test("#given macOS status matrices #when required contexts are preserved #then their Linux runner never floats", () => {
     const workflow = Bun.YAML.parse(readFileSync(join(WORKFLOWS_DIR, "ci.yml"), "utf8")) as { jobs: Record<string, Job> }
     for (const id of ["macos-test-1-status", "macos-test-2-status", "macos-codex-status", "macos-senpi-status"]) {
-      expect(workflow.jobs[id]?.["runs-on"]).toBe("ubuntu-26.04")
+      const status = workflow.jobs[id]
+      if (status === undefined) throw new Error(`missing status job: ${id}`)
+      // ci-platform-runner-allocation owns internal Fast versus pinned hosted selection.
+      expect(floats(status)).toBe(false)
     }
   })
 
@@ -93,5 +97,7 @@ describe("Ubuntu runner pin policy (#9928)", () => {
     expect(floats({ ...os(["ubuntu-latest"]), "runs-on": "${{ matrix.os == 'ubuntu-latest' && 'ubuntu-26.04' || matrix.os }}" })).toBe(false)
     expect(floats({ "runs-on": "${{ startsWith(matrix.platform, 'darwin-') && 'macos-latest' || 'ubuntu-latest' }}" })).toBe(true)
     expect(floats({ "runs-on": "${{ matrix.os }}" })).toBe(true)
+    expect(floats({ "runs-on": "${{ fromJSON('[\"ubuntu-latest\"]') }}" })).toBe(true)
+    expect(floats({ "runs-on": "${{ fromJSON('[\"self-hosted\",\"Linux\",\"X64\",\"af-ci-fast-v1\"]') }}" })).toBe(false)
   })
 })
