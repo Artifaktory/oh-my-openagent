@@ -19,7 +19,7 @@ export function applyCategoryOverride(
   const categoryConfig = mergedCategories[categoryName]
   if (!categoryConfig) return config
 
-  const result = { ...config } as AgentConfig & Record<string, unknown>
+  const result: AgentConfig = { ...config }
   if (categoryConfig.model) result.model = categoryConfig.model
   if (categoryConfig.variant !== undefined) result.variant = categoryConfig.variant
   if (categoryConfig.reasoning !== undefined) result.variant = categoryConfig.reasoning
@@ -34,7 +34,7 @@ export function applyCategoryOverride(
     result.prompt = result.prompt + "\n" + resolvePromptAppend(categoryConfig.prompt_append)
   }
 
-  return result as AgentConfig
+  return result
 }
 
 export function mergeAgentConfig(
@@ -78,7 +78,7 @@ export function applyOverrides(
   deferInstructions = false,
 ): AgentConfig {
   let result = config
-  const overrideCategory = (override as Record<string, unknown> | undefined)?.category as string | undefined
+  const overrideCategory = override?.category
   if (overrideCategory) {
     result = applyCategoryOverride(result, overrideCategory, mergedCategories, deferInstructions)
   }

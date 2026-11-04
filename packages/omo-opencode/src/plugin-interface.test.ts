@@ -11,6 +11,7 @@ import { getUltraworkMessage } from "./hooks/keyword-detector/ultrawork"
 import { createAutoSlashCommandHook } from "./hooks/auto-slash-command"
 import { createUlwExecuteHook } from "./hooks/ulw-execute"
 import { readBoulderState } from "./features/boulder-state"
+import { frameNativePrompt, replaceNativePromptFrames, type NativePromptContext } from "./agents/native-prompt-frame"
 import {
   _resetForTesting,
   getSessionAgent,
@@ -18,6 +19,62 @@ import {
   updateSessionAgent,
 } from "./features/claude-code-session-state"
 
+
+describe("createPluginInterface - Autopilot and upstream reconciliation", () => {
+  const inspectFrame = (prompt: string): NativePromptContext | undefined => {
+    let context: NativePromptContext | undefined
+    replaceNativePromptFrames([prompt], undefined, value => { context = value; return undefined }, true)
+    return context
+  }
+
+  test("#given ordinary and renamed Autopilot frames #when config reconciles tools #then only the ordinary frame is rewritten", async () => {
+    const prompt = frameNativePrompt(randomUUID(), { model: "fixture/model", tools: [] })
+    const plugin = createPluginInterface({
+      ctx: { directory: tmpdir(), client: {} } as never,
+      pluginConfig: { agents: { autopilot: { displayName: "Bound reviewer" } } } as never,
+      firstMessageVariantGate: { shouldOverride: () => false, markApplied: () => {}, markSessionCreated: () => {}, clear: () => {} },
+      managers: { configHandler: async () => {} } as never, hooks: {} as never,
+      tools: { read: { description: randomUUID() }, grep: { description: randomUUID() } } as never,
+    })
+    const config = { agent: { oracle: { prompt }, "Bound reviewer": { prompt } }, tools: { grep: false } }
+    await plugin.config?.(config)
+    expect(inspectFrame(config.agent.oracle.prompt)?.tools).toEqual(["read"])
+    expect(config.agent["Bound reviewer"].prompt).toBe(prompt)
+  })
+
+  test("#given ordinary cached permissions and an unavailable Autopilot child #when events update permissions #then ordinary reconciliation refreshes and Autopilot fails closed", async () => {
+    let reads = 0
+    const snippet = randomUUID()
+    const plugin = createPluginInterface({
+      ctx: { directory: tmpdir(), client: { session: {
+        messages: async ({ path }: { path: { id: string } }) => ({ data: path.id === "autopilot-child" ? [{ info: { agent: "autopilot" } }] : [] }),
+        get: async () => { reads++; return { data: { permission: [{ permission: "read", pattern: "*", action: "deny" }] } } },
+      } } } as never,
+      pluginConfig: {} as never,
+      firstMessageVariantGate: { shouldOverride: () => false, markApplied: () => {}, markSessionCreated: () => {}, clear: () => {} },
+      managers: {} as never, hooks: {} as never,
+      tools: { read: { description: snippet } } as never,
+    })
+    const render = async (sessionID: string) => {
+      const output = { system: [frameNativePrompt(randomUUID(), { model: "fixture/old", tools: [] })] }
+      await plugin["experimental.chat.system.transform"]?.({ sessionID, model: { providerID: "fixture", id: "new" } }, output)
+      return inspectFrame(output.system[0])
+    }
+    expect((await render("ordinary"))?.tools).toEqual([])
+    await render("ordinary")
+    expect(reads).toBe(1)
+    await plugin.event?.({ event: { type: "session.updated", properties: { info: {
+      id: "ordinary", permission: [{ permission: "read", pattern: "*", action: "allow" }],
+    } } } } as never)
+    const updated = await render("ordinary")
+    expect(updated?.tools).toEqual(["read"])
+    expect(updated?.toolSnippets).toEqual({ read: snippet })
+    expect(updated?.model).toBe("fixture/new")
+    expect(reads).toBe(1)
+    await expect(render("autopilot-child")).rejects.toThrow("runtime_unavailable")
+    expect(reads).toBe(1)
+  })
+})
 
 describe("createPluginInterface - command.execute.before", () => {
   let testDir = ""

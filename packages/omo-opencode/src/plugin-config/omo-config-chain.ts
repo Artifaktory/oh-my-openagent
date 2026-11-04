@@ -80,15 +80,15 @@ function modelInput(view: Readonly<Record<string, unknown>>, nativeCategory = fa
   const autopilotCategory = typeof autopilot?.category === "string" ? autopilot.category : undefined
   const agents = isPlainRecord(view.agents)
     ? Object.fromEntries(Object.entries(view.agents).flatMap(([name, definition]) => {
-      const fields = recordFields(definition, ["description", "prompt", "model", "models", "variant", "reasoningEffort", "tools", "temperature", "disable",
+      const fields = recordFields(definition, ["description", "prompt", "model", "models", "models_distribution", "variant", "reasoningEffort", "tools", "temperature", "disable",
         ...(name === "autopilot" ? ["reasoning"] : [])])
       return fields === undefined ? [] : [[name, fields]]
     }))
     : undefined
   const categories = isPlainRecord(view.categories)
     ? Object.fromEntries(Object.entries(view.categories).flatMap(([name, definition]) => {
-      const fields = recordFields(definition, ["description", "model", "fallback_models", "variant", "temperature", "top_p", "maxTokens", "thinking", "reasoningEffort", "textVerbosity", "tools", "prompt_append", "max_prompt_tokens", "is_unstable_agent", "disable",
-        ...(nativeCategory && name === autopilotCategory ? ["reasoning", "models"] : [])])
+      const fields = recordFields(definition, ["description", "model", "models", "models_distribution", "fallback_models", "variant", "temperature", "top_p", "maxTokens", "thinking", "reasoningEffort", "textVerbosity", "tools", "prompt_append", "max_prompt_tokens", "is_unstable_agent", "disable",
+        ...(nativeCategory && name === autopilotCategory ? ["reasoning"] : [])])
       return fields === undefined ? [] : [[name, fields]]
     }))
     : undefined

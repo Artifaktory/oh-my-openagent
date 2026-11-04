@@ -20,6 +20,11 @@ import type { Managers } from "./create-managers"
 import { AutopilotError, isAutopilotAgent, isAutopilotTranscript, type AutopilotRuntime } from "./features/autopilot"
 import { getAgentDisplayName } from "./shared/agent-display-names"
 import { normalizeSDKResponse } from "./shared/normalize-sdk-response"
+import { reconcileNativeModelPrompts } from "./agents/native-model-prompt"
+import type { NativePromptContext } from "./agents/native-prompt-frame"
+import { toolPromptSnippet } from "./agents/native-tool-snippet"
+import { createSessionToolPermissionLookup } from "./plugin/session-tool-permissions"
+import { rebaseSisyphusRuntimePrompt } from "./agents/sisyphus-runtime-prompt-reconciler"
 
 export function createPluginInterface(args: {
   autopilotRuntime?: AutopilotRuntime
@@ -37,6 +42,10 @@ export function createPluginInterface(args: {
 }): PluginInterface {
   const { ctx, pluginConfig, firstMessageVariantGate, managers, hooks, tools } =
     args
+  const toolSnippets = Object.fromEntries(
+    Object.entries(tools).map(([name, definition]) => [name, toolPromptSnippet(definition.description)]),
+  )
+  const sessionToolPermissions = createSessionToolPermissionLookup(ctx)
   const runtime = args.autopilotRuntime
   const nativeName = getAgentDisplayName("autopilot", pluginConfig.agents)
   const isNamedAutopilot = (agent: unknown) => isAutopilotAgent(agent) || agent === nativeName
@@ -55,7 +64,8 @@ export function createPluginInterface(args: {
   const command = createCommandExecuteBeforeHandler({ directory: ctx.directory, hooks,
     mcpManager: managers.skillMcpManager, notify: message => showSkillSecurityNotice(ctx, message) })
   const messages = createMessagesTransformHandler({ hooks })
-  const system = createSystemTransformHandler(pluginConfig.default_mode, getUltraworkMessage, hooks.keywordDetector)
+  const system = createSystemTransformHandler(pluginConfig.default_mode, getUltraworkMessage, hooks.keywordDetector,
+    () => toolSnippets, sessionToolPermissions.lookup)
   const event = createEventHandler({ ctx, pluginConfig, firstMessageVariantGate, managers, hooks })
   const before = createToolExecuteBeforeHandler({ ctx, hooks, backgroundManager: managers.backgroundManager,
     isAutopilotTarget: agent => isNamedAutopilot(agent) || runtime?.isAutopilotName(agent) === true })
@@ -122,15 +132,52 @@ export function createPluginInterface(args: {
       await system(input, output)
     },
 
-    config: managers.configHandler,
+    config: async (config) => {
+      await managers.configHandler(config)
+      for (const [name, agent] of Object.entries(config.agent ?? {})) {
+        if (isNamedAutopilot(name) || runtime?.isAutopilotName(name)) continue
+        if (!agent || typeof agent.prompt !== "string") continue
+        const rules: NonNullable<NativePromptContext["toolPermissions"]> = []
+        for (const [pattern, enabled] of Object.entries(config.tools ?? {})) {
+          rules.push({ pattern, permission: enabled ? "allow" : "deny" })
+        }
+        for (const permissions of [config.permission, agent.permission]) {
+          for (const [pattern, permission] of Object.entries(permissions ?? {})) {
+            if (permission === "allow" || permission === "ask" || permission === "deny") {
+              rules.push({ pattern, permission })
+            } else if (typeof permission === "object" && permission !== null) {
+              for (const [scope, action] of Object.entries(permission)) {
+                if (action === "allow" || action === "ask" || action === "deny") {
+                  rules.push({ pattern, permission: action, scope })
+                }
+              }
+            }
+          }
+        }
+        for (const pattern of pluginConfig.disabled_tools ?? []) rules.push({ pattern, permission: "deny" })
+        const rewrite = (prompt: string): string => {
+          const system = [prompt]
+          reconcileNativeModelPrompts(system, undefined, toolSnippets, rules)
+          return system[0]
+        }
+        const rewritten = rewrite(agent.prompt)
+        rebaseSisyphusRuntimePrompt(agent.prompt, rewritten, rewrite)
+        agent.prompt = rewritten
+      }
+    },
 
     event: async input => {
+      sessionToolPermissions.observe(input)
       if (runtime?.event(input.event as { type: string; properties?: Record<string, unknown> })) return
       await event(input)
     },
 
     "tool.definition": createToolDefinitionHandler({
       hooks,
+      onDefinition: (name, description) => {
+        // OpenCode defines this error handler but never exposes it as a model tool.
+        if (name !== "invalid") toolSnippets[name] = toolPromptSnippet(description)
+      },
     }),
 
     "tool.execute.before": async (input, output) => {

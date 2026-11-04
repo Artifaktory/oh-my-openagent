@@ -194,6 +194,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -745,6 +752,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -1298,6 +1312,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -1850,6 +1871,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -2401,6 +2429,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -2957,6 +2992,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -3508,6 +3550,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -4061,6 +4110,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -4612,6 +4668,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -5165,6 +5228,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -5716,6 +5786,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -6269,6 +6346,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -6820,6 +6904,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -7373,6 +7464,13 @@
                 ]
               }
             },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
+            },
             "fallback_models": {
               "anyOf": [
                 {
@@ -7924,6 +8022,13 @@
                   }
                 ]
               }
+            },
+            "models_distribution": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "round_robin"
+              ]
             },
             "fallback_models": {
               "anyOf": [
@@ -8477,6 +8582,13 @@
                 }
               ]
             }
+          },
+          "models_distribution": {
+            "type": "string",
+            "enum": [
+              "sequential",
+              "round_robin"
+            ]
           },
           "fallback_models": {
             "anyOf": [
@@ -9205,6 +9317,13 @@
                 }
               ]
             }
+          },
+          "models_distribution": {
+            "type": "string",
+            "enum": [
+              "sequential",
+              "round_robin"
+            ]
           },
           "fallback_models": {
             "anyOf": [

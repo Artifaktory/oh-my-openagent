@@ -140,7 +140,12 @@ export function projectAutopilotNativeConfig(agents: object | undefined, options
   if (!parsed.success) throw new AutopilotError("invalid_configuration")
   const override = parsed.data
   const categories = mergeCategories(structuredClone(binding.config.categories) as Record<string, CategoryConfig> | undefined)
-  const category = normalizedCategory(override.category ? categories[override.category] : undefined)
+  const selectedCategory = override.category ? categories[override.category] : undefined
+  const chainConfig = override.models?.length ? override : !override.model ? selectedCategory : undefined
+  if (chainConfig?.models_distribution === "round_robin" && chainConfig.models?.length) {
+    throw new AutopilotError("invalid_configuration")
+  }
+  const category = normalizedCategory(selectedCategory)
   if (override.category && !category) throw new AutopilotError("invalid_configuration")
   if (category && !CategoryConfigSchema.strict().safeParse(category).success) throw new AutopilotError("invalid_configuration")
   if (category?.provider_options !== undefined) throw new AutopilotError("invalid_configuration")

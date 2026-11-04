@@ -17,17 +17,20 @@ export async function nativeConfigCases(context: Context): Promise<Data> {
       fixture.user.profiles = { qa: { "[opencode]": { agents: { autopilot: { model: "qa/judge-profile", reasoning: "max" } } } } }
     } },
     { id: "category-model", model: "judge-category", reasoning: "high", configure: () => {
-      agent(context, { category: "review" }); block(fixture.user).categories = { review: { model: "qa/judge-category", reasoning: "high" } }
+      agent(context, { category: "review" }); block(fixture.user).categories = { review: { model: "qa/judge-category", reasoning: "high",
+        models: [{ model: "qa/judge-category", reasoning: "high" }, "qa/judge"], models_distribution: "sequential" } }
     } },
     { id: "direct-over-category", model: "judge-direct", reasoning: "max", configure: () => {
       agent(context, { category: "review", model: "qa/judge-direct", reasoning: "max" })
-      block(fixture.user).categories = { review: { model: "qa/judge-category", reasoning: "high" } }
+      block(fixture.user).categories = { review: { model: "qa/judge-category", reasoning: "high",
+        models: [{ model: "qa/judge-category", reasoning: "high" }, "qa/judge"], models_distribution: "round_robin" } }
     } },
     { id: "catalog-alias", model: "judge-profile", reasoning: "high", configure: () => {
       fixture.user.models = { selected: { model: "qa/judge-profile", reasoning: "high" } }; agent(context, { model: "selected" })
     } },
     { id: "models-list", model: "judge-direct", reasoning: "max", configure: () => {
-      agent(context, { model: "qa/judge", reasoning: "high", models: [{ model: "qa/judge-direct", reasoning: "max" }] })
+      agent(context, { category: "review", model: "qa/judge", reasoning: "high", models: [{ model: "qa/judge-direct", reasoning: "max" }] })
+      block(fixture.user).categories = { review: { models: ["qa/judge-category", "qa/judge"], models_distribution: "round_robin" } }
     } },
     { id: "variant-alias", model: "judge", reasoning: "high", configure: () => agent(context, { model: "qa/judge", variant: "high" }) },
     { id: "effort-alias", model: "judge", reasoning: "high", configure: () => agent(context, { model: "qa/judge", reasoningEffort: "high" }) },
@@ -41,6 +44,29 @@ export async function nativeConfigCases(context: Context): Promise<Data> {
     const result = await host.invoke({ id: test.id, arguments: fixture.arguments() }), observed = await host.verify(result, test.model, test.provider)
     check(object(result.provenance).reasoning === test.reasoning, "native_reasoning_mismatch")
     observations.push({ id: test.id, ...observed })
+  }
+  for (const location of ["agent", "category"] as const) {
+    await fixture.reset()
+    const models = [{ model: "qa/judge-direct", reasoning: "max" }, "qa/judge"]
+    agent(context, location === "agent"
+      ? { category: "review", model: "qa/judge", models, models_distribution: "round_robin" }
+      : { category: "review" })
+    block(fixture.user).categories = { review: { models, models_distribution: location === "category" ? "round_robin" : "sequential" } }
+    await fixture.writeConfigs()
+    const beforeChildren = await host.operation("session.children", { sessionID: host.parent })
+    check(Array.isArray(beforeChildren), "round_robin_child_list_invalid")
+    const before = provider.records.length, eventStart = host.events.length, id = `active-${location}-round-robin`
+    const result = await host.invoke({ id, arguments: fixture.arguments() })
+    const rejection = rejected(result, ["invalid_configuration"])
+    check(result.effect === "not_attempted", "round_robin_effect_attempted")
+    check(!provider.records.slice(before).some(record => record.invocation_id), "round_robin_dispatched_child")
+    check(!host.events.slice(eventStart).some(event => event.type === "session.created"
+      && object(object(event.properties).info).parentID === host.parent), "round_robin_created_child")
+    const afterChildren = await host.operation("session.children", { sessionID: host.parent })
+    check(Array.isArray(afterChildren), "round_robin_child_list_invalid")
+    const childIDs = (children: unknown[]) => children.map(child => object(child).id).sort()
+    check(JSON.stringify(childIDs(afterChildren)) === JSON.stringify(childIDs(beforeChildren)), "round_robin_children_changed")
+    observations.push({ id, ...rejection, child_dispatches: 0, child_sessions_unchanged: true })
   }
   await fixture.reset(); agent(context, { category: "review" })
   block(fixture.user).categories = { review: { model: "qa/not-available" } }; await fixture.writeConfigs()

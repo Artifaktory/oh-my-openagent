@@ -136,6 +136,7 @@ function materializeAgentModelChains(config: OhMyOpenCodeConfig): OhMyOpenCodeCo
       ...rest,
       ...primarySettings,
       fallback_models: fallbacks,
+      ...(agent.models_distribution === "round_robin" ? { models: agent.models } : {}),
     }]
   })) as typeof config.agents
 

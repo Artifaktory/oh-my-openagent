@@ -2,6 +2,32 @@
 
 This describes the callable assessment contract for [Issue #2](https://github.com/Artifaktory/oh-my-openagent/issues/2), which owns final evidence, review and acceptance status. The [verification map](verification.md) identifies owner tests, native cases and qualification limits. [Operator setup and policy publication](../../reference/configuration.md#autopilot-opencode) define the editable boundary.
 
+## Synced dev integration boundary
+
+The pending integration combines feature HEAD `e95dd97eee0e71b4af0e38c27af22e4823596fb0`
+with approved dev `15f820d5e7cc29a0c6deed98722af8193d24d9a1`. The OpenCode source
+resolution retains upstream agent/category `models` and `models_distribution`
+overlays, catalog/profile resolution and ordinary prompt/tool reconciliation.
+Autopilot retains operator-only enrollment selection, pre-prune diagnostics,
+mandatory lifecycle guards and captured instruction bytes. Permission-cache
+observation precedes lifecycle dispatch; ordinary reconciliation excludes the
+canonical and configured Autopilot names.
+
+Qualification is pending. The bounded AP-INT-DISTRIBUTION-01 repair rejects
+unsupported active `round_robin` with `invalid_configuration` before child
+admission. The effective nonempty `models` list follows native precedence: an
+own agent list wins, including when a primary model has been materialized from
+it; otherwise an own fixed/materialized model suppresses category distribution.
+Only an effective nonempty round-robin list is rejected. An overridden category
+round-robin list or a distribution flag without an effective list is not rejected
+by this guard. Ordinary agent distribution remains unchanged.
+
+The projection does not call the distributor, rotate a chain or mutate selection
+state during repeated policy reads. Fixed models, sequential/default chains,
+reasoning, captured snapshots and the existing fallback limit retain their
+behavior. This bounded rejection does not implement Autopilot round-robin
+selection or establish a QA result.
+
 ## Public named-task request
 
 Call the existing `task` tool with `subagent_type: "autopilot"`, `run_in_background: false`, a normal description and this strict JSON string as `prompt`:

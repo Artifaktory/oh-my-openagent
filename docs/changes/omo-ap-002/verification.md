@@ -4,6 +4,51 @@
 
 The authority remains [OMO-AP-001 design 1.0](../omo-ap-001/design.md) and the accepted Issue #2 PLAN2. [Operator configuration](../../reference/configuration.md#autopilot-opencode) and the [implemented protocol](implementation.md) describe the delivered boundary. TaskUpdate/CAS, mandatory completion gating, signing and task/todo effects belong outside this delivery; public results retain `effect: "not_attempted"`.
 
+## Synced dev integration verification pending
+
+Integration round 1 binds feature HEAD `e95dd97eee0e71b4af0e38c27af22e4823596fb0`
+and dev `15f820d5e7cc29a0c6deed98722af8193d24d9a1`; the candidate includes uncommitted
+merge resolutions. Tests, typecheck, builds and native QA for these bytes are
+**NOT RUN** by the implementer. Historical results below retain their original
+subjects and cannot qualify this integration.
+
+The existing native-configuration owner now includes profile/catalog resolution
+alongside ordinary agent/category round-robin lists, direct Autopilot precedence,
+immutable captures across a catalog change, invalid-distribution rejection and a
+project-profile activation attempt against operator-off. The plugin-interface
+owner adds ordinary versus renamed-Autopilot frame handling, session-permission
+cache updates and unavailable-child rejection. These exercise existing production
+boundaries; no production test seam or prose assertions were added.
+
+For AP-INT-DISTRIBUTION-01, Main/QC must compare the same owner tests against the
+current integrated pre-repair projector and the candidate with the exact repair
+applied. Select `AP-INT-DISTRIBUTION-01-active-agent` and
+`AP-INT-DISTRIBUTION-01-active-category`: both provide a valid, available, nonempty
+round-robin chain and require `invalid_configuration` before child admission.
+The pre-repair projector selects the first model without rejecting it. This is
+a source-derived failure prediction, not an observed RED or GREEN result. CAF
+`caf7285e78b0f8eec2976d5c29d6e2bfb2cc2bcb` is not this regression's baseline: its
+schema can reject the unknown distribution enum before the defective projection.
+Record actual output; setup/import failures do not establish behavioral RED.
+Main must observe that RED before applying the production/documentation draft.
+
+The owner controls retain ordinary/profile/catalog round robin, own default and
+sequential lists, fixed/materialized model precedence over unused category round
+robin, reasoning, fallback limits and immutable captures. The existing
+`native-config` driver group adds active agent/category rejection with no provider
+dispatch, no child-created event and unchanged child-session identities. Its
+existing positive calls exercise fixed and materialized precedence over unused
+category round robin and an effective sequential category chain. No successful
+child calls or native groups are added; all fourteen groups and root limits remain.
+
+The bounded disposition is unsupported-active-chain rejection, as described in
+the [implementation boundary](implementation.md#synced-dev-integration-boundary).
+It is not full Autopilot round-robin support. Qualification remains pending:
+Main freezes the complete candidate, runs affected owner suites and unchanged
+repository gates, and performs source-bound isolated OpenCode QA. Preserve
+original AC01-AC11, prior failures and consumed budgets; this integration does not
+restart them or supply independent approval.
+
 ## Acceptance-to-verification mapping
 
 Owner tests below are existing behavioral surfaces, not declarations that they ran on a later candidate. The [driver evidence registry][driver-evidence] defines fourteen native groups; all are mapped below. AC05 is the assembled quality/review obligation across those groups, not a separate driver case. The [driver][driver] invokes the real OpenCode task path; its [host observer][driver-host] records actual messages, tool results, child/model identities and lifecycle observations. Each criterion requires the applicable deterministic results, bounded native observations and independent disposition recorded in Issue #2.
@@ -18,7 +63,7 @@ Owner tests below are existing behavioral surfaces, not declarations that they r
 | **AC06: live rule edit/revert and fresh children** | [Policy capture][policy-tests], [producer][runtime-tests], [continuation rejection][continuation-tests] | `model-policy-ab-revert`: hold task/subject/evidence constant, publish A, B and reverted A as a new publication, then observe actual model decisions in three fresh children under one live parent without rebuild/restart. `lifecycle-rejections` and `custom-name-restart`: reject old-child continuation, including genuine producer history retained across rename/restart. Scripted restart controls cannot prove the model judgment change. |
 | **AC07: one consistent invocation snapshot** | [Protocol][protocol-tests], [policy capture][policy-tests], [instruction composition][instruction-tests] | `native-task` and `model-policy-ab-revert`: latch A in flight while B is published; A retains its captured tuple, the next fresh child uses B. Correlate manifest/policy/instruction/configuration digests with request, result and redacted evidence. Capture-time mixed inputs must fail, not merge snapshots. |
 | **AC08: editable boundary, precedence and invalid policy** | [Policy capture][policy-tests], [instruction composition][instruction-tests], [native configuration][native-tests] | `model-policy-ab-revert` and `policy-file-negatives`, plus operator-example checks: cover edit/revert, missing/unreadable/invalid/conflicting or unpublished sources. Enrolled guidance cannot replace the fixed protocol/tool ceiling; failure cannot silently use cached policy or broader authority. |
-| **AC09: native OD07 configuration** | [Native configuration][native-tests], [validation pipeline][validation-tests], [override schema][override-schema-tests] | `native-config` and `native-fallback`: user/project/profile, category/direct `model` and `models`, catalog and reasoning aliases, declared custom variant, unsupported/unavailable negatives and bounded captured fallback. Record actual effective model/reasoning/configuration identities. No Autopilot-specific vendor prerequisite or universal provider claim follows. |
+| **AC09: native OD07 configuration** | [Native configuration][native-tests], [validation pipeline][validation-tests], [override schema][override-schema-tests] | `native-config` and `native-fallback`: user/project/profile, category/direct `model` and `models`, catalog and reasoning aliases, declared custom variant, unsupported/unavailable negatives, active agent/category round-robin rejection without child dispatch, overridden category round-robin controls and bounded captured fallback. Record actual effective model/reasoning/configuration identities. No Autopilot-specific vendor prerequisite or universal provider claim follows. |
 | **AC10: permission ceiling and parent/child lifecycle** | [Authority][authority-tests], [producer][runtime-tests], [synchronous admission][admission-tests], [mandatory lifecycle][lifecycle-tests], [early renamed-session denial][renamed-denial-tests] | `native-task`, `native-config`, `native-fallback`, `authority-off`, `lifecycle-rejections`, `tool-boundary`, `cancellation`, `short-budget-recovery`, `child-deletion-recovery`, `custom-name-restart`: correlate effective configuration, fresh children, allowed read and denied tool events, old-child/background/mixed-category rejection and parent abort. Owner tests cover the broader read/glob/grep ceiling, stale/unowned contexts, early-discovery deadlines and terminal payload release. Native recovery/restart observations need their own completed, bound results; they do not prove memory-reference release or private receipt ownership. |
 | **AC11: multi-file, removal and stale-context matrix** | [Policy capture][policy-tests], [instruction composition][instruction-tests], [producer/registry lifecycle][runtime-tests], [continuation][continuation-tests], [mandatory lifecycle][lifecycle-tests] | `model-policy-ab-revert`, `policy-file-negatives`, `lifecycle-rejections`, `cancellation`, `short-budget-recovery`, `child-deletion-recovery`, `custom-name-restart`: correlate multi-file/removal/partial-publication failures, edit/revert and retained rule/transcript rejection. Owner tests cover configured prompt/append/category/skill/caller-skill composition; native evidence must identify the exact channels actually exercised. |
 
