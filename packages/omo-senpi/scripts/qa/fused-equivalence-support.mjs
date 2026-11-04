@@ -5,6 +5,67 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+export const E23_FINAL_REPLY_BARRIER = "eq-e23-memory-first-write";
+
+/** E23's turn tail, after the case has opened its client and installed UI replies. */
+export async function driveMemoryTurn(run) {
+	const client = run.client;
+	const ownedWaiters = new Map();
+	const register = (operation) => {
+		const previous = new Set(client.eventWaiters);
+		try {
+			return operation();
+		} finally {
+			// CaseRun.prompt registers its nested idle waiter before its first await.
+			for (const waiter of client.eventWaiters) {
+				if (!previous.has(waiter)) ownedWaiters.set(waiter, waiter.timer);
+			}
+		}
+	};
+	const isFooter = (event) =>
+		event?.type === "extension_ui_request" && event.method === "setStatus" && event.statusKey === "memory" &&
+		typeof event.statusText === "string" && event.statusText.trim().length > 0;
+	let released = false;
+	const releaseFinalReply = () => {
+		if (released) return;
+		released = true;
+		run.server.releaseBarrier(E23_FINAL_REPLY_BARRIER);
+	};
+	try {
+		const promptStart = client.events.length;
+		const firstFooter = register(() => client.waitForEvent(isFooter));
+		firstFooter.catch(() => undefined);
+		const settled = register(() => run.prompt("remember one EQ fact"));
+		// Success cannot satisfy a footer wait; rejection must interrupt it with the original error.
+		const promptFailure = settled.then(() => new Promise(() => {}));
+		promptFailure.catch(() => undefined);
+		const initial = await Promise.race([firstFooter, promptFailure]);
+		const initialIndex = client.events.indexOf(initial);
+		const changedFooter = register(() => client.waitForEvent((event) =>
+			client.events.indexOf(event) >= promptStart && client.events.indexOf(event) > initialIndex &&
+			isFooter(event) && event.statusText !== initial.statusText,
+		));
+		changedFooter.catch(() => undefined);
+		releaseFinalReply();
+		await Promise.all([settled, changedFooter]);
+		await run.close();
+	} catch (error) {
+		// CaseRun.stop waits for child exit before stopping the server, so unblock our reply first.
+		try {
+			releaseFinalReply();
+		} finally {
+			throw error;
+		}
+	} finally {
+		for (const [waiter, timer] of ownedWaiters) {
+			const index = client.eventWaiters.indexOf(waiter);
+			if (index === -1) continue;
+			clearTimeout(timer);
+			client.eventWaiters.splice(index, 1);
+		}
+	}
+}
+
 /**
  * The plugin's status publishers (`omo.<component>.updated` extension events: task, dag, memory) and the
  * fire-and-forget footer/widget updates (`setStatus` / `setWidget`, keyed by their status or widget key) re-publish a

@@ -3,7 +3,7 @@ import type { ExtensionContext } from "@code-yeongyu/senpi"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DefaultResourceLoader, ModelRegistry, ModelRuntime, SessionManager, SettingsManager, createAgentSession, getMcpService } from "../senpi-test-runtime"
+import { DefaultResourceLoader, McpService, ModelRegistry, ModelRuntime, SessionManager, SettingsManager, createAgentSession, createMcpExtension } from "../senpi-test-runtime"
 import omoExtension from "./index"
 
 const ENV_KEYS = ["HOME", "OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR", "OMO_SENPI_DISABLE_POSTHOG"] as const
@@ -28,9 +28,9 @@ afterEach(() => {
   baseline = undefined
 })
 
-type Settle = Awaited<ReturnType<ReturnType<typeof getMcpService>["whenAttachSettled"]>>
+type Settle = Awaited<ReturnType<InstanceType<typeof McpService>["whenAttachSettled"]>>
 /** The scenario's bounded wait for the MCP attach. Real time by default; a test that asserts the bound itself injects a clock it controls. */
-type AttachWait = (service: ReturnType<typeof getMcpService>, boundMs: number) => Promise<Settle>
+type AttachWait = (service: InstanceType<typeof McpService>, boundMs: number) => Promise<Settle>
 const realAttachWait: AttachWait = (service, boundMs) => service.whenAttachSettled(boundMs)
 type Observed = {
   status: string
@@ -99,7 +99,8 @@ async function runPrefixScenario(options: {
   // The OmO extension is loaded whole; of the engine builtins only those this test needs: the MCP host the
   // extension's servers attach to and the prewarm builtin. The goal builtin's session_start takes a goal-file
   // lock (mkdir under this HOME) that a loaded run can finish after the HOME is removed (#9766 leak).
-  const settingsManager = SettingsManager.inMemory({ defaultProjectTrust: "always", enabledBuiltinExtensions: ["cache-keepalive", "mcp"] })
+  // The explicit MCP factory owns this scenario's service; automatic MCP loading would also attach a shared one.
+  const settingsManager = SettingsManager.inMemory({ defaultProjectTrust: "always", enabledBuiltinExtensions: ["cache-keepalive"] })
   const registry = new ModelRegistry(ModelRuntime.createSync({ modelsPath: null }))
   registry.registerProvider("prefix-fixture", {
     api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "fixture-key",
@@ -109,17 +110,17 @@ async function runPrefixScenario(options: {
       contextWindow: 100_000, maxTokens: 4096,
     }],
   })
+  const service = new McpService()
   let context: ExtensionContext | undefined
   const loader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager, noExtensions: true, noSkills: true,
     noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [async (pi) => {
+    extensionFactories: [createMcpExtension(service, true), async (pi) => {
       await omoExtension(pi)
       pi.on("session_start", (_event, ctx) => { context = ctx })
     }],
   })
   let session: Session | undefined
-  let mcp: ReturnType<typeof getMcpService> | undefined
   let observed: Observed | undefined
   let failure: unknown
   try {
@@ -137,8 +138,6 @@ async function runPrefixScenario(options: {
     // Binding the session, not the preview, starts the MCP connects (ast-grep spawns past session_start and
     // logs into this HOME). Await their settled signal, bounded, before the preview so anything the preview
     // started would show, and so no connect is still writing when the HOME is removed.
-    const service = getMcpService()
-    mcp = service
     const settled = await (options.attachWait ?? realAttachWait)(service, options.attachSettleMs)
     if (settled !== "settled") throw new Error(`MCP attach did not settle within ${options.attachSettleMs} ms (${String(settled)})`)
     const servers = () => service.getServerSnapshots().map(({ name, lifecycleState, generation, pid }) => ({ name, lifecycleState, generation, pid }))
@@ -175,7 +174,7 @@ async function runPrefixScenario(options: {
     // fixes that report and senpi#4020 stops an aborted connect from logging or degrading after dispose; neither is
     // in the pinned release yet.
     try {
-      const settled = await mcp?.whenAttachSettled(stepMs)
+      const settled = await service.whenAttachSettled(stepMs)
       if (settled !== undefined && settled !== "settled") errors.push(new Error(`MCP attach still pending at teardown (${String(settled)})`))
     } catch (caught) { errors.push(caught) }
     try {
@@ -184,7 +183,7 @@ async function runPrefixScenario(options: {
     try {
       if (session !== undefined) await bounded(disposeSession(session), stepMs, "session.dispose()")
     } catch (caught) { errors.push(caught) }
-    mcpDisposed = mcp?.getSnapshot().disposed
+    mcpDisposed = service.getSnapshot().disposed
   } finally {
     if (ownsProcess()) {
       process.chdir(cwd)

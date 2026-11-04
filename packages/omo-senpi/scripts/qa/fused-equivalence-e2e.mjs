@@ -29,6 +29,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+	E23_FINAL_REPLY_BARRIER,
+	driveMemoryTurn,
 	dropTimestampOffsets,
 	pinEnginePackage,
 	splitStatusChannels,
@@ -339,7 +341,7 @@ const cases = [
 						},
 					],
 				},
-				{ text: "E23-DONE" },
+				{ text: "E23-DONE", holdUntil: E23_FINAL_REPLY_BARRIER },
 			],
 		}),
 		async drive(run) {
@@ -349,8 +351,7 @@ const cases = [
 			});
 			await run.open();
 			answerUiRequests(run);
-			await run.prompt("remember one EQ fact");
-			await run.close();
+			await driveMemoryTurn(run);
 		},
 	},
 	{

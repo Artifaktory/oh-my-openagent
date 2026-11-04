@@ -1,6 +1,6 @@
 declare const require: (name: string) => any
 const { afterEach, describe, expect, mock, test, afterAll } = require("bun:test")
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { PART_STORAGE } from "../../shared"
@@ -8,6 +8,7 @@ import { PART_STORAGE } from "../../shared"
 const testDirs: string[] = []
 const TEST_STORAGE_ROOT = join(tmpdir(), `atlas-session-last-agent-${Date.now()}`)
 const TEST_MESSAGE_STORAGE = join(TEST_STORAGE_ROOT, "message")
+const TEST_PART_STORAGE = join(TEST_STORAGE_ROOT, "part")
 
 afterEach(() => {
   while (testDirs.length > 0) {
@@ -16,6 +17,8 @@ afterEach(() => {
       rmSync(directory, { recursive: true, force: true })
     }
   }
+  rmSync(TEST_STORAGE_ROOT, { recursive: true, force: true })
+  expect(existsSync(TEST_STORAGE_ROOT)).toBe(false)
 })
 
 async function importFreshSessionLastAgentModule(): Promise<typeof import("./session-last-agent")> {
@@ -71,11 +74,14 @@ describe("getLastAgentFromSession JSON backend", () => {
 
   test("skips JSON messages whose part storage contains a compaction marker", async () => {
     // given
+    const sharedPartStorageBefore = existsSync(PART_STORAGE)
+      ? readdirSync(PART_STORAGE).sort()
+      : null
     const sessionID = "ses_json_compaction_marker"
     const messageDir = createTempMessageDir(sessionID)
     const compactionMessageID = "msg_test_atlas_compaction_marker"
     const regularMessageID = `msg_${sessionID}_regular`
-    const partDir = join(PART_STORAGE, compactionMessageID)
+    const partDir = join(TEST_PART_STORAGE, compactionMessageID)
     testDirs.push(partDir)
     writeFileSync(join(messageDir, "msg_0001.json"), JSON.stringify({
       id: compactionMessageID,
@@ -112,6 +118,11 @@ describe("getLastAgentFromSession JSON backend", () => {
 
     // then
     expect(result).toBe("sisyphus-junior")
+    expect(existsSync(join(partDir, "prt_0001.json"))).toBe(true)
+    const sharedPartStorageAfter = existsSync(PART_STORAGE)
+      ? readdirSync(PART_STORAGE).sort()
+      : null
+    expect(sharedPartStorageAfter).toEqual(sharedPartStorageBefore)
   })
 
   test("uses SDK messages when JSON message directory lookup fails", async () => {

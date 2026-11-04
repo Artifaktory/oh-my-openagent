@@ -248,12 +248,18 @@ describe("pollForCompletion", () => {
     eventState.mainSessionIdle = true
     eventState.hasReceivedMeaningfulWork = false
     const abortController = new AbortController()
+    const clock = createVirtualClock((elapsedMs) => {
+      if (elapsedMs >= 100) {
+        abortController.abort()
+      }
+    })
 
     //#when
-    abortAfter(abortController, 100)
     const result = await pollForCompletion(ctx, eventState, abortController, {
       pollIntervalMs: 10,
       requiredConsecutive: 3,
+      now: clock.now,
+      sleep: clock.sleep,
     })
 
     //#then

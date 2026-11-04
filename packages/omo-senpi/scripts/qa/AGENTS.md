@@ -6,6 +6,7 @@ Live Senpi QA harness: E2E drivers, continuation probes, scenario fixtures, and 
 
 | Lane | Drivers |
 |------|---------|
+| Fused-path equivalence | `fused-equivalence-e2e.mjs --compare --repeat 3 --placement fused --senpi-repo <harness> --desktop-engine <local-binary> --lsp-dir <pinned-bin> --evidence-dir <owned-dir>` (E21 audit/reopen, E22 child result/model, E23 persisted memory-write receipt, E24 TypeScript diagnostic; accepted Linux references and capture discipline below) |
 | Task | `task-e2e.mjs` (single/batch lifecycles), `task-lane-spill-e2e.mjs`, `task-fallback-notification.mjs`, `task-category-unavailable-e2e.mjs`, `task-id-race-qa.mjs`, `task-parent-restart-e2e.mjs`, `task-summary-e2e.mjs`, `task-load-skills-e2e.mjs`, `task-13.test.ts` (engine wiring), `isolation-e2e.mjs [--evidence-dir <d>] [--plugin-root <p>] [--control-plugin-root <p>] [--senpi-cli <p>] [--only applied,conflict,control] [--keep-sandbox] [--self-test]` (checkout isolation on the real surface: a temp git checkout, one FOREGROUND child spawned with `isolated: true`, `applied` = the child's `hello.txt` reaches the parent checkout with `merge_result.kind === "applied"` and the clone gone, `conflict-not-applied` = a parent-side edit landing mid-run leaves the parent copy untouched with a verbatim conflict, a readable `root.patch`, a `git apply --3way` manual command and the clone renamed aside as `<base>.retained-*`, `control` = the SAME script against another plugin root records no isolation at all. Forces `task.default_execution_mode: "in-process"` so the lane mock provider answers both turns; scripts and assertions live in `isolation-e2e-scenarios.mjs`; writes `e2e.json`) |
 | Team | `team-e2e.mjs`, `team-resume-e2e.mjs`, `team-delete-6413-qa.mjs`, `team-e2e-crash.mjs`/`-crash-state.mjs`, support modules `team-e2e-{support,runtime,process,scripts,analysis}.mjs`, `team-e2e-mock-provider.ts` |
 | RPC | `task-rpc-e2e.mjs`, `-helpers.mjs`, `-scenarios.mjs` (+`.test.mjs`), `task-rpc-e2e.windows.test.ts` |
@@ -73,3 +74,30 @@ bun run test:senpi                                             # gate: build + s
 ```
 
 LSP and ast-grep lanes need staged runtimes first (`bun run build:senpi-plugin`). Evidence goes under `.omo/evidence/omo-senpi-adapter/` via the `senpi-qa` skill's resolver; see the package and root AGENTS.md.
+
+## Fused-path equivalence references (EQ.omo)
+
+`fused-equivalence-e2e.mjs` exercises E21–E24 through the real, pinned Senpi CLI and the built plugin. The Linux references under `fused-equivalence-golden/linux-x64/` were captured for `@code-yeongyu/senpi@2026.10.27-2` on Bun 1.4.4 with the Senpi QA harness at `5ab795e3392325c961596d7944a1740f4d0a9e20`. The manifest records the actual source revision, harness revision, runtime versions and driver/normalizer/provider/collector hashes. Its source revision identifies the code used for capture; it is not an authorization or an assertion that the later reference-update commit was executed.
+
+A stable recording alone does not authorize a reference refresh. Diagnose every old/new difference and obtain independent semantic acceptance first. The Senpi-1 references were stale against the intended Senpi-2 pin: the accepted changes concern runtime build identity, the model-visible AskUser description, streaming presence, intermediate copied-message usage, lifecycle activity records and the resulting injective ID-token renumbering. These are specific accepted source-contract changes, not new normalization rules. Keep prompt/tool descriptions, tool schemas and permission declarations, usage, lifecycle state/sequence/revisions, and every status snapshot's membership, count, content and order fully compared. The comparator and runtime producers are unchanged.
+
+Use a task-owned Linux x64 executor with synthetic HOME, USERPROFILE, XDG, agent and memory roots before importing the harness. Keep real account homes and credentials unmounted; use only the harness's loopback fake provider, disabled remote MCP/telemetry and fake desktop backend. Resolve the adapter evidence directory through `.agents/skills/senpi-qa/scripts/resolve-evidence-dir.mjs` and retain all commands, exits, timings and cleanup receipts there. Run-scoped evidence is local and never committed.
+
+For recording, create a separate public-source checkout with the exact source HEAD/tree, modes, symlinks and gitlinks. Materialize the complete already-built plugin, including generated skills and runtime sidecars; verify all file/mode/content hashes, private dependency identities and the desktop binary before and after. Place the identical desktop binary inside that checkout so the existing checkout-root normalization applies. Use an owned temporary root outside every Git checkout: the harness allocates session cwd below `os.tmpdir()`, and an ancestor repository can add repository-identity entries. Verify that Git discovery fails from that temporary root. Serialize drivers because the fixed engine installation has a single-owner lock. Use the default canonical pinned CLI without diagnostic engines or preloads.
+
+Run the original comparison first and preserve the failing observations. After semantic acceptance, record in the separate checkout only, then perform a separate strict comparison:
+
+```sh
+node packages/omo-senpi/scripts/qa/fused-equivalence-e2e.mjs \
+  --record --repeat 3 --placement fused --senpi-repo "$HARNESS" \
+  --desktop-engine "$PWD/target/release/senpi-desktop-engine" \
+  --lsp-dir "$LSP_BIN" --evidence-dir "$EVIDENCE/candidate-record"
+node packages/omo-senpi/scripts/qa/fused-equivalence-e2e.mjs \
+  --compare --repeat 3 --placement fused --senpi-repo "$HARNESS" \
+  --desktop-engine "$PWD/target/release/senpi-desktop-engine" \
+  --lsp-dir "$LSP_BIN" --evidence-dir "$EVIDENCE/candidate-compare"
+```
+
+The recorder writes individual case files before the whole run finishes. Quarantine every output until all four cases complete three repetitions, with correct legacy pipeline witnesses, zero repeat differences/errors and no cleanup survivors. Verify the final baseline and producer/consumer manifests against the actual non-null source and harness revisions; null, missing and wrong identities must fail admission. Review the complete old/new contents without masks. Exercise meaningful mutations of the captured tool/schema/permission declarations, audit and reopened state, child model/result, persisted memory-write receipt, TypeScript diagnostic 2322, usage, lifecycle, status ordering/counts and ID relationships. Keep the existing normalizer, process-cleanup, lock, evidence-resolver and driver self-checks, including a missing-LSP rejection.
+
+Report coverage limits explicitly: these observations protect the persisted memory-write receipt and provider-visible permission declarations; they do not certify the physical memory repository file or runtime authorization enforcement. Defined-control PASS is separate from complete candidate admission. Preserve failed attempts and independent finding dispositions. Promote only the five accepted Linux JSON files and directly required QA documentation after independent candidate acceptance. Do not update Darwin references without native evidence. Final local checks and independent implementation review still precede branch publication; merge and release remain separate.
