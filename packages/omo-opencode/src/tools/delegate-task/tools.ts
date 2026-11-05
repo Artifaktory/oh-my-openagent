@@ -18,6 +18,7 @@ import { createDelegateTaskPresentation } from "./tool-description"
 import type { AvailableSkill } from "../../agents/dynamic-agent-prompt-builder"
 import { mergeNativeSkillInfos, type NativeSkillEntry } from "../skill/native-skills"
 import type { SkillInfo } from "../skill/types"
+import { interceptAutopilotTask } from "./autopilot-task"
 
 async function loadNativeSkillEntries(
   nativeSkills: DelegateTaskToolOptions["nativeSkills"] | undefined,
@@ -82,10 +83,12 @@ export function createDelegateTask(options: DelegateTaskToolOptions): ToolDefini
   const { availableCategories, availableSkills, categoryExamples, description } = createDelegateTaskPresentation(options)
 
   return tool({
-    description,
+    description: description + (options.autopilotRuntime ? '\nAutopilot: call subagent_type="autopilot", run_in_background=false with prompt as JSON: {"protocol":"autopilot.assessment.v1","task":{"store":"<enrolled task directory>","id":"<task id>"},"subject":{"path":"<enrolled subject file>"},"evidence":[{"id":"<evidence id>","path":"<enrolled evidence file>"}]}. Each call creates a fresh child. Autopilot task_id continuations are rejected. Results are assessments only and never execute task updates or grant human approval.' : ""),
     args: delegateTaskArgsSchema,
     async execute(args, toolContext) {
       const ctx = toolContext as ToolContextWithMetadata
+      const autopilot = await interceptAutopilotTask(args, ctx, options)
+      if (autopilot !== undefined) return autopilot
       const delegateTaskArgs = await prepareDelegateTaskArgs(args, ctx)
 
       const runInBackground = delegateTaskArgs.run_in_background === true

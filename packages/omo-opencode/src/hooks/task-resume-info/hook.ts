@@ -2,6 +2,15 @@ import { extractTaskLink } from "../../features/tool-metadata-store"
 
 const TARGET_TOOLS = ["task", "Task", "task_tool", "call_omo_agent"]
 
+function isAutopilotResult(text: string): boolean {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === "object" && "protocol" in value && value.protocol === "autopilot.result.v1"
+  } catch {
+    return false
+  }
+}
+
 export function createTaskResumeInfoHook() {
   const toolExecuteAfter = async (
     input: { tool: string; sessionID: string; callID: string },
@@ -9,6 +18,7 @@ export function createTaskResumeInfoHook() {
   ) => {
     if (!TARGET_TOOLS.includes(input.tool)) return
     const outputText = output.output ?? ""
+    if (isAutopilotResult(outputText)) return
     if (outputText.startsWith("Error:") || outputText.startsWith("Failed")) return
     if (outputText.includes("\nto continue:")) return
 

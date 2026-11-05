@@ -11,6 +11,23 @@ type AddTaskArg = Parameters<import("../../features/task-toast-manager/manager")
 type CapturedMetadata = { title?: string; metadata: Record<string, unknown> }
 
 describe("executeSyncTask - cleanup on error paths", () => {
+  for (const metadataFails of [false, true]) {
+    test(`#given a native final #when final metadata ${metadataFails ? "fails" : "succeeds"} #then typed completion follows the native success boundary`, async () => {
+      const { executeSyncTask } = require("./sync-task")
+      let publications = 0
+      const completed = mock(() => {})
+      const ctx = { sessionID: "completion-parent", callID: "completion-call", metadata: () => {
+        if (++publications === 2 && metadataFails) throw Error("final metadata failed")
+      } }
+      const deps = { createSyncSession: async () => ({ ok: true, sessionID: "completion-child", parentDirectory: "/tmp" }),
+        sendSyncPrompt: async () => null, pollSyncSession: async () => null,
+        fetchSyncResult: async () => ({ ok: true, textContent: "actual final" }), onNativeCompleted: completed }
+      const result = await executeSyncTask({ description: "completion", prompt: "data", load_skills: [], run_in_background: false }, ctx,
+        { client: { session: {} }, directory: "/tmp" }, { sessionID: "completion-parent" }, "explore", undefined, undefined, undefined, undefined, deps)
+      expect(completed).toHaveBeenCalledTimes(metadataFails ? 0 : 1)
+      expect(result).toContain(metadataFails ? "final metadata failed" : "actual final")
+    })
+  }
   let removeTaskCalls: string[] = []
   let addTaskCalls: AddTaskArg[] = []
   let deleteCalls: string[] = []

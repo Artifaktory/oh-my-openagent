@@ -2,8 +2,17 @@
 
 import { describe, expect, test } from "bun:test"
 import { OhMyOpenCodeConfigSchema } from "./oh-my-opencode-config"
+import { BuiltinAgentNameSchema, OverridableAgentNameSchema } from "./agent-names"
 
 describe("OhMyOpenCodeConfigSchema disabled_skills", () => {
+  test("#given canonical Autopilot #when configured and disabled #then both native name schemas preserve the key", () => {
+    expect(BuiltinAgentNameSchema.parse("autopilot")).toBe("autopilot")
+    expect(OverridableAgentNameSchema.parse("autopilot")).toBe("autopilot")
+    const config = OhMyOpenCodeConfigSchema.parse({ agents: { autopilot: { model: "provider/model" } }, disabled_agents: ["autopilot"] })
+    expect(config.agents?.autopilot?.model).toBe("provider/model")
+    expect(config.disabled_agents).toEqual(["autopilot"])
+  })
+
   test("accepts review-work, runtime security skills", () => {
     // given
     const config = {

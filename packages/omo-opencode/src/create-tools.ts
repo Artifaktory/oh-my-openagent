@@ -20,6 +20,7 @@ type CreateToolsResult = {
 }
 
 export async function createTools(args: {
+  autopilotRuntime?: import("./features/autopilot").AutopilotRuntime
   ctx: PluginContext
   pluginConfig: OhMyOpenCodeConfig
   managers: Pick<Managers, "backgroundManager" | "tmuxSessionManager" | "skillMcpManager" | "modelFallbackControllerAccessor" | "monitorManager">
@@ -34,6 +35,7 @@ export async function createTools(args: {
   const availableCategories = createAvailableCategories(pluginConfig)
 
   const { filteredTools, taskSystemEnabled } = createToolRegistry({
+    autopilotRuntime: args.autopilotRuntime,
     ctx,
     pluginConfig,
     managers,

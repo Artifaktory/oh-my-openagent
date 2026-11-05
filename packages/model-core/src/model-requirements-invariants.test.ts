@@ -13,6 +13,7 @@ const expectedAgents = [
   "momus",
   "atlas",
   "sisyphus-junior",
+  "autopilot",
 ] as const
 
 const expectedCategories = [

@@ -1,3 +1,4 @@
+import type { ExtensionFactory } from "@code-yeongyu/senpi"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -46,16 +47,20 @@ const authStorageModule = await import(
   pathToFileURL(join(senpiDistDir, "core", "auth-storage.js")).href
 ) as { AuthStorage: { inMemory(data?: Record<string, unknown>): SenpiAuthStorage } }
 
-// The process-wide MCP service a session's builtin attaches to. Its startup connects outlive
+// Real MCP services and the existing extension factory. Their startup connects outlive
 // session_start (they race in the background), so a test that removes its HOME awaits them first.
 interface SenpiMcpServerSnapshot { readonly name: string; readonly lifecycleState: string; readonly generation: number | null; readonly pid: number | null }
-const mcpServiceModule = await import(
-  pathToFileURL(join(senpiDistDir, "core", "extensions", "builtin", "mcp", "service.js")).href
-) as { getMcpService(): {
+interface SenpiMcpService {
   whenAttachSettled(timeoutMs?: number): Promise<"settled" | "timeout">
   getServerSnapshots(): readonly SenpiMcpServerSnapshot[]
   getSnapshot(): { readonly connectionCount: number; readonly disposed: boolean }
-} }
+}
+const mcpServiceModule = await import(
+  pathToFileURL(join(senpiDistDir, "core", "extensions", "builtin", "mcp", "service.js")).href
+) as { McpService: new () => SenpiMcpService; getMcpService(): SenpiMcpService }
+const mcpExtensionModule = await import(
+  pathToFileURL(join(senpiDistDir, "core", "extensions", "builtin", "mcp", "index.js")).href
+) as { createMcpExtension(service: SenpiMcpService, sessionOwned?: boolean): ExtensionFactory }
 
 export const { Theme } = themeModule
 export const { ModelRegistry } = modelRegistryModule
@@ -66,4 +71,5 @@ export const { SessionManager } = sessionManagerModule
 export const { convertToLlm } = messagesModule
 export const { SettingsManager } = settingsManagerModule
 export const { AuthStorage } = authStorageModule
-export const { getMcpService } = mcpServiceModule
+export const { McpService } = mcpServiceModule
+export const { createMcpExtension } = mcpExtensionModule

@@ -1,6 +1,7 @@
 import type { OpencodeClient } from "./types"
 import type { DelegatedModelConfig } from "../../shared/model-resolution-types"
 import { QUESTION_DENIED_SESSION_PERMISSION } from "../../shared/question-denied-session-permission"
+import type { SyncExecutionControl } from "./sync-admission"
 
 export async function createSyncSession(
   client: OpencodeClient,
@@ -11,16 +12,23 @@ export async function createSyncSession(
     defaultDirectory: string
     category?: string
     categoryModel?: DelegatedModelConfig
+    control?: SyncExecutionControl
+    ownedPermissions?: readonly { permission: string; pattern: string; action: "allow" | "deny" | "ask" }[]
   }
 ): Promise<{ ok: true; sessionID: string; parentDirectory: string } | { ok: false; error: string }> {
-  const parentSession = await client.session.get({ path: { id: input.parentSessionID } }).catch(() => null)
+  input.control?.check()
+  const parentSession = await client.session.get({ path: { id: input.parentSessionID },
+    ...(input.control ? { signal: input.control.signal } : {}) }).catch(() => null)
+  input.control?.check()
   const parentDirectory = parentSession?.data?.directory ?? input.defaultDirectory
 
+  input.control?.check()
   const createResult = await client.session.create({
+    ...(input.control ? { signal: input.control.signal } : {}),
     body: {
       parentID: input.parentSessionID,
       title: `${input.category ? `[${input.category}] ` : ""}${input.description} (@${input.agentToUse} subagent)`,
-      permission: QUESTION_DENIED_SESSION_PERMISSION,
+      permission: input.ownedPermissions ?? QUESTION_DENIED_SESSION_PERMISSION,
       ...(input.categoryModel
         ? {
             model: {

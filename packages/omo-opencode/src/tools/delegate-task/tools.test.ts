@@ -1971,21 +1971,25 @@ describe("sisyphus-task", () => {
       launch: async () => mockTask,
     }
     
-      let messagesCallCount = 0
+      let promptDispatched = false
+      const now = Date.now()
 
       const mockClient = {
          session: {
-           prompt: async () => ({ data: {} }),
-           promptAsync: async () => ({ data: {} }),
+           prompt: async () => {
+             promptDispatched = true
+             return { data: {} }
+           },
+           promptAsync: async () => {
+             promptDispatched = true
+             return { data: {} }
+           },
            messages: async (args?: { path?: { id?: string } }) => {
              const sessionID = args?.path?.id
-             // Only track calls for the target session (ses_continue_test),
-             // not for parent-session calls from resolveParentContext
+             // Serve the continuation history only for the target session.
              if (sessionID !== "ses_continue_test") {
                return { data: [] }
              }
-             messagesCallCount++
-             const now = Date.now()
 
              const beforeContinuation = [
                {
@@ -1998,7 +2002,7 @@ describe("sisyphus-task", () => {
                },
              ]
 
-             if (messagesCallCount === 1) {
+             if (!promptDispatched) {
                return { data: beforeContinuation }
              }
 
@@ -2056,7 +2060,9 @@ describe("sisyphus-task", () => {
     //#given a session with a previous message that has variant "max"
     const { createDelegateTask } = require("./tools")
 
+    let promptDispatched = false
     const promptMock = mock(async () => {
+      promptDispatched = true
       return { data: {} }
     })
 
@@ -2079,8 +2085,6 @@ describe("sisyphus-task", () => {
       },
     ]
 
-    const messagesCallCounts: Record<string, number> = {}
-
     const mockClient = {
       session: {
         prompt: promptMock,
@@ -2091,14 +2095,11 @@ describe("sisyphus-task", () => {
             return { data: [] }
           }
 
-          const callCount = (messagesCallCounts[sessionID] ?? 0) + 1
-          messagesCallCounts[sessionID] = callCount
-
           if (sessionID !== "ses_var_test") {
             return { data: [] }
           }
 
-          if (callCount === 1) {
+          if (!promptDispatched) {
             return { data: initialMessages }
           }
 

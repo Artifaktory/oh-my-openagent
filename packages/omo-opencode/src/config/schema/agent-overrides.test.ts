@@ -2,6 +2,15 @@ import { describe, expect, test } from "bun:test"
 import { AgentOverridesSchema } from "./agent-overrides"
 
 describe("AgentOverridesSchema", () => {
+  test("#given Autopilot-only fixed limits #when parsing #then unsafe explicit overrides fail while ordinary agents stay configurable", () => {
+    for (const override of [{ mode: "primary" }, { model: " " }, { models: [] }, { tools: { task: true } },
+      { permission: { bash: "ask" } }, { permission: { external_directory: "allow" } }, { permission: { "*": "allow" } }, { trusted: true }]) {
+      expect(AgentOverridesSchema.safeParse({ autopilot: override }).success).toBe(false)
+    }
+    expect(AgentOverridesSchema.safeParse({ autopilot: { tools: { read: true }, permission: { read: "ask", edit: "deny" } } }).success).toBe(true)
+    expect(AgentOverridesSchema.safeParse({ oracle: { mode: "primary", permission: { bash: "allow" } } }).success).toBe(true)
+  })
+
   test("preserves custom agent keys after parsing", () => {
     const input = {
       sisyphus: { model: "anthropic/claude-opus-4-6" },

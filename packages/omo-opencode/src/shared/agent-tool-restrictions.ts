@@ -29,6 +29,8 @@ const EXPLORATION_AGENT_DENYLIST: Record<string, boolean> = {
 }
 
 const AGENT_RESTRICTIONS: Record<string, Record<string, boolean>> = {
+  autopilot: { "*": false, read: false, glob: false, grep: false, write: false, edit: false,
+    bash: false, task: false, call_omo_agent: false, skill: false, skill_mcp: false, question: false },
   explore: EXPLORATION_AGENT_DENYLIST,
 
   librarian: EXPLORATION_AGENT_DENYLIST,
@@ -74,4 +76,3 @@ export function getAgentToolRestrictions(agentName: string, options: AgentToolRe
     ...agentRestrictions,
   }
 }
-

@@ -28,7 +28,14 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { goldenHostLeaks, pinEnginePackage, statusCounts, stopSandboxProcesses } from "./fused-equivalence-support.mjs";
+import {
+	E23_FINAL_REPLY_BARRIER,
+	driveMemoryTurn,
+	goldenHostLeaks,
+	pinEnginePackage,
+	statusCounts,
+	stopSandboxProcesses,
+} from "./fused-equivalence-support.mjs";
 import { openSettled, reopenStateSettled } from "./fused-equivalence-mcp-startup.mjs";
 import { observeOmo } from "./fused-equivalence-observe.mjs";
 import { prepareCaseSandbox } from "./fused-equivalence-sandbox.mjs";
@@ -286,7 +293,7 @@ const cases = [
 						},
 					],
 				},
-				{ text: "E23-DONE" },
+				{ text: "E23-DONE", holdUntil: E23_FINAL_REPLY_BARRIER },
 			],
 		}),
 		async drive(run) {
@@ -296,8 +303,7 @@ const cases = [
 			});
 			await openSettled(run);
 			answerUiRequests(run);
-			await run.prompt("remember one EQ fact");
-			await run.close();
+			await driveMemoryTurn(run);
 		},
 	},
 	{

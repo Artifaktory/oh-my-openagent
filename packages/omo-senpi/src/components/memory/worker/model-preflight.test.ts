@@ -257,7 +257,7 @@ control.once("error", () => process.exit(0))
       // platform-scoped.
       const probeTimeoutMs = 1_000
       const outerBoundMs = process.platform === "win32" ? 10_000 : 2_500
-      const startedAt = Date.now()
+      const startedAt = performance.now()
       const probe = preflightMemoryModels({
         candidates,
         launch: { command: process.execPath, prefixArgs: [wrapper] },
@@ -281,7 +281,7 @@ control.once("error", () => process.exit(0))
 
       // then
       expect(result).toEqual({ kind: "unavailable", candidates })
-      expect(Date.now() - startedAt).toBeLessThan(outerBoundMs)
+      expect(performance.now() - startedAt).toBeLessThan(outerBoundMs)
 
       // and then: the ORIGINAL wrapper is observed through its own pid file - production must
       // have killed the launcher rather than merely abandoning it.

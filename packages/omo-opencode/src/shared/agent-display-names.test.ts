@@ -2,6 +2,14 @@ import { describe, it, expect } from "bun:test"
 import { AGENT_DISPLAY_NAMES, getAgentConfigKey, getAgentDisplayName, getAgentListDisplayName, normalizeAgentForPrompt, normalizeAgentForPromptKey, stripAgentListSortPrefix } from "./agent-display-names"
 
 describe("getAgentDisplayName", () => {
+  it("#given an Autopilot selector or prompt name #when normalized #then native discovery keeps its canonical identity", () => {
+    expect(getAgentDisplayName("autopilot")).toBe("Autopilot")
+    for (const name of ["autopilot", "AUTOPILOT", "01|Autopilot", "\u200BAutopilot"]) {
+      expect(getAgentConfigKey(name)).toBe("autopilot")
+      expect(normalizeAgentForPrompt(name)).toBe("Autopilot")
+    }
+  })
+
   it("returns display name for lowercase config key (new format)", () => {
     // given config key "sisyphus"
     const configKey = "sisyphus"
@@ -185,6 +193,7 @@ describe("AGENT_DISPLAY_NAMES", () => {
       hephaestus: "Hephaestus - Deep Agent",
       prometheus: "Prometheus - Plan Builder",
       atlas: "Atlas - Plan Executor",
+      autopilot: "Autopilot",
       "sisyphus-junior": "Sisyphus-Junior",
       metis: "Metis - Plan Consultant",
       momus: "Momus - Plan Critic",

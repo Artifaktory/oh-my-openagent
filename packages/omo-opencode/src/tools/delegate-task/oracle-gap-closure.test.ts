@@ -232,7 +232,14 @@ describe("delegate-task Oracle gap closure", () => {
           }
         },
       },
-      client: {},
+      client: {
+        session: {
+          messages: async () => ({ data: [{
+            info: { role: "assistant", agent: "explore", model: MODEL },
+            parts: [{ type: "text", text: "Previous result" }],
+          }] }),
+        },
+      },
     })
 
     //#when

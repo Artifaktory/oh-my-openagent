@@ -9,7 +9,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import { spawnSync } from "node:child_process"
@@ -18,7 +17,6 @@ import { pathToFileURL } from "node:url"
 const packageRoot = join(import.meta.dir, "..")
 const pluginRoot = join(packageRoot, "plugin")
 const extensionPath = join(pluginRoot, "extensions", "omo.js")
-const requireFromPackage = createRequire(join(packageRoot, "package.json"))
 const temporaryRoots: string[] = []
 
 afterEach(() => {
@@ -126,13 +124,18 @@ function installedPackageNameOf(packageName: string): string {
 }
 
 function findPackageRoot(specifier: string): string {
-  const packageName = installedPackageNameOf(packageNameOf(specifier))
-  let current = dirname(requireFromPackage.resolve(specifier))
+  const packageName = packageNameOf(specifier)
+  const installedName = installedPackageNameOf(packageName)
+  let current = packageRoot
   for (;;) {
-    const manifestPath = join(current, "package.json")
-    if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown }
-      if (manifest.name === packageName) return current
+    const dependencyPath = join(current, "node_modules", ...packageName.split("/"))
+    if (existsSync(dependencyPath)) {
+      const dependencyRoot = realpathSync(dependencyPath)
+      const manifest = JSON.parse(readFileSync(join(dependencyRoot, "package.json"), "utf8")) as { name?: unknown }
+      if (manifest.name !== installedName) {
+        throw new Error(`Expected ${installedName} at ${dependencyPath}, found ${String(manifest.name)}`)
+      }
+      return dependencyRoot
     }
 
     const parent = dirname(current)

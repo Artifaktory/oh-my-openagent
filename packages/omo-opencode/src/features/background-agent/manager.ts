@@ -409,6 +409,10 @@ export class BackgroundManager {
     this.concurrencyManager.release(model)
   }
 
+  cancelSyncSubagentConcurrencyWaiter(model: string, taskId: string): boolean {
+    return this.concurrencyManager.cancelWaiter(model, taskId)
+  }
+
   private registerRootDescendant(rootSessionID: string): number {
     const nextCount = (this.rootDescendantCounts.get(rootSessionID) ?? 0) + 1
     this.rootDescendantCounts.set(rootSessionID, nextCount)

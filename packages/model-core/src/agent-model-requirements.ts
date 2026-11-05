@@ -3,6 +3,12 @@ import type { ModelRequirement } from "./model-requirement-types"
 import { LATEST_MODEL_BY_FAMILY } from "./latest-models"
 
 export const AGENT_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
+  autopilot: {
+    fallbackChain: [
+      { providers: ["openai", "chatgpt-subscription", "github-copilot", "opencode"], model: LATEST_MODEL_BY_FAMILY.gptAstra, variant: "high" },
+      { providers: ["anthropic", "github-copilot", "opencode"], model: LATEST_MODEL_BY_FAMILY.claudeOpus, variant: "high" },
+    ],
+  },
   sisyphus: {
     fallbackChain: [
       {

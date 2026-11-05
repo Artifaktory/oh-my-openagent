@@ -9,6 +9,7 @@ import { createMetisAgent } from "./metis"
 import { createAtlasAgent } from "./atlas"
 import { createSisyphusAgent } from "./sisyphus"
 import { createHephaestusAgent } from "./hephaestus"
+import { createAutopilotAgent } from "./autopilot"
 import { getAgentToolRestrictions } from "../shared/agent-tool-restrictions"
 
 const TEST_MODEL = "anthropic/claude-sonnet-4-5"
@@ -28,6 +29,13 @@ const TEAM_TOOL_NAMES = [
 ] as const
 
 describe("read-only agent tool restrictions", () => {
+  test("#given a raw Autopilot factory #when created #then every unselected tool and external directory is denied", () => {
+    const agent = createAutopilotAgent(TEST_MODEL)
+    expect(agent.mode).toBe("subagent")
+    expect(agent.permission).toEqual({ "*": "deny", external_directory: "deny" })
+    expect(agent.tools).toEqual({ "*": false })
+  })
+
   const FILE_WRITE_TOOLS = ["write", "edit", "apply_patch"]
 
   test("denies team tools for every delegated subagent prompt", () => {

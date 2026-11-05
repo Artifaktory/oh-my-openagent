@@ -12,6 +12,7 @@ import { publishSyncTaskMetadata } from "./sync-task-metadata"
 import { runSyncTaskLoop } from "./sync-task-runner"
 import { cleanupSyncSessionSideEffects, registerSyncSessionSideEffects } from "./sync-session-lifecycle"
 import type { DelegatedModelConfig, DelegateTaskArgs, ToolContextWithMetadata } from "./types"
+import { createSyncAdmission, SyncAdmissionError, type SyncAdmissionRecord } from "./sync-admission"
 
 export async function executeSyncTask(
   args: DelegateTaskArgs,
@@ -23,7 +24,8 @@ export async function executeSyncTask(
   systemContent: string | undefined,
   modelInfo?: ModelFallbackInfo,
   fallbackChain?: FallbackEntry[],
-  deps: SyncTaskDeps = syncTaskDeps
+  deps: SyncTaskDeps = syncTaskDeps,
+  admissionRecord?: SyncAdmissionRecord,
 ): Promise<string> {
   const { client, directory, syncPollTimeoutMs, taskCleanupDelayMs } = executorCtx
   const toastManager = getTaskToastManager()
@@ -33,21 +35,60 @@ export async function executeSyncTask(
     | Awaited<ReturnType<ExecutorContext["manager"]["reserveSubagentSpawn"]>>
     | undefined
   let concurrencyAcquired = false
-  const concurrencyModel = categoryModel && typeof categoryModel.providerID === "string" && typeof categoryModel.modelID === "string"
+  let concurrencyModel = categoryModel && typeof categoryModel.providerID === "string" && typeof categoryModel.modelID === "string"
     ? `${categoryModel.providerID}/${categoryModel.modelID}`
     : typeof agentToUse === "string" ? agentToUse : "default"
   const manager = executorCtx?.manager
+  let admission: ReturnType<typeof createSyncAdmission> | undefined
+  const abandonLateSession = (result: Awaited<ReturnType<SyncTaskDeps["createSyncSession"]>>) => {
+    if (!result.ok) return
+    if (typeof client?.session?.abort === "function") {
+      void client.session.abort({ path: { id: result.sessionID } }).catch(() => {
+        log("[task] Late cancelled sync session abort failed")
+      })
+    }
+    scheduleSyncSessionDeletion(client, result.sessionID, taskCleanupDelayMs)
+  }
 
   try {
+    admission = admissionRecord ? createSyncAdmission(admissionRecord, ctx.abort) : undefined
+    admission?.check()
     if (!subagentSessions.has(parentContext.sessionID) && typeof manager?.acquireSyncSubagentConcurrency === "function") {
-      await manager.acquireSyncSubagentConcurrency(concurrencyModel)
+      if (admission) await admission.acquire(manager, concurrencyModel)
+      else await manager.acquireSyncSubagentConcurrency(concurrencyModel)
       concurrencyAcquired = true
     }
-    const spawn = await reserveSyncSubagentSpawn(executorCtx, parentContext)
+    admission?.check()
+    const spawn = admission
+      ? await admission.run(() => reserveSyncSubagentSpawn(executorCtx, parentContext), late => late.reservation?.rollback())
+      : await reserveSyncSubagentSpawn(executorCtx, parentContext)
     spawnReservation = spawn.reservation
     const { spawnContext } = spawn
 
-    const createSessionResult = await deps.createSyncSession(client, {
+    const guard = admission
+    const activeDeps: SyncTaskDeps = guard ? {
+      ...deps,
+      createSyncSession: (currentClient, input) => guard.run(() => deps.createSyncSession(currentClient, { ...input, control: guard }), abandonLateSession),
+      sendSyncPrompt: (currentClient, input, promptDeps) => guard.run(() => deps.sendSyncPrompt(currentClient, { ...input, control: guard }, promptDeps)),
+      pollSyncSession: (toolContext, currentClient, options, timeout) => guard.run(() =>
+        deps.pollSyncSession(toolContext, currentClient, options, Math.min(timeout ?? guard.remaining(), guard.remaining()))),
+      fetchSyncResult: (...parameters) => guard.run(() => deps.fetchSyncResult(...parameters)),
+      onModelChange: async model => {
+        guard.check()
+        const nextKey = `${model.providerID}/${model.modelID}`
+        if (concurrencyAcquired && nextKey !== concurrencyModel) {
+          manager.releaseSyncSubagentConcurrency(concurrencyModel)
+          concurrencyAcquired = false
+          await guard.acquire(manager, nextKey)
+          concurrencyModel = nextKey
+          concurrencyAcquired = true
+        }
+        await deps.onModelChange?.(model)
+        guard.check()
+      },
+    } : deps
+
+    const createSessionResult = await activeDeps.createSyncSession(client, {
       parentSessionID: parentContext.sessionID,
       agentToUse,
       description: args.description,
@@ -66,8 +107,9 @@ export async function executeSyncTask(
     syncSessionID = sessionID
 
     const registerSyncSession = async (newSessionID: string): Promise<void> => {
+      admission?.check()
       syncSessionID = newSessionID
-      await registerSyncSessionSideEffects({
+      const register = () => registerSyncSessionSideEffects({
         args,
         executorCtx,
         sessionID: newSessionID,
@@ -77,6 +119,8 @@ export async function executeSyncTask(
         fallbackChain,
         systemContent,
       })
+      if (admission) await admission.run(register)
+      else await register()
     }
 
     const publishSyncMetadata = async (
@@ -84,7 +128,8 @@ export async function executeSyncTask(
       currentModel: DelegatedModelConfig | undefined,
       spawnDepth: number,
     ): Promise<void> => {
-      await publishSyncTaskMetadata({
+      admission?.check()
+      const publish = () => publishSyncTaskMetadata({
         args,
         ctx,
         currentSessionID,
@@ -93,6 +138,8 @@ export async function executeSyncTask(
         agentToUse,
         spawnDepth,
       })
+      if (admission) await admission.run(publish)
+      else await publish()
     }
 
     await registerSyncSession(sessionID)
@@ -120,10 +167,15 @@ export async function executeSyncTask(
 
     const cleanupRetrySession = (currentSessionID: string): void => {
       cleanupSyncSessionSideEffects(currentSessionID, executorCtx)
+      if (admission) {
+        deps.onSessionAbandoned?.(currentSessionID)
+        void client.session.abort({ path: { id: currentSessionID } }).catch(() => log("[task] Retry session abort failed"))
+        scheduleSyncSessionDeletion(client, currentSessionID, taskCleanupDelayMs)
+      }
     }
 
     try {
-      return await runSyncTaskLoop({
+      const result = await runSyncTaskLoop({
         args,
         ctx,
         executorCtx: {
@@ -134,7 +186,7 @@ export async function executeSyncTask(
         agentToUse,
         categoryModel,
         fallbackChain,
-        deps,
+        deps: activeDeps,
         sessionID,
         spawnDepth: spawnContext.childDepth,
         taskId,
@@ -148,6 +200,8 @@ export async function executeSyncTask(
         cleanupRetrySession,
         setSyncSessionID,
       })
+      admission?.check()
+      return result
     } finally {
       if (toastManager && taskId !== undefined) {
         toastManager.removeTask(taskId)
@@ -155,6 +209,7 @@ export async function executeSyncTask(
     }
   } catch (error) {
     spawnReservation?.rollback()
+    if (error instanceof SyncAdmissionError) return JSON.stringify({ error: error.code })
     const errorToFormat = error instanceof Error ? error : String(error)
     return formatDetailedError(errorToFormat, {
       operation: "Execute task",
@@ -164,6 +219,7 @@ export async function executeSyncTask(
       category: args.category,
     })
   } finally {
+    admission?.dispose()
     if (syncSessionID) {
       cleanupSyncSessionSideEffects(syncSessionID, executorCtx)
       handedBackSyncSessions.add(syncSessionID)

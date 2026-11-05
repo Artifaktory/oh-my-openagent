@@ -14,6 +14,29 @@ describe("createTaskResumeInfoHook", () => {
     callID: "test-call-id",
   })
 
+  for (const outcome of ["approve", "human_required"] as const) {
+    it(`#given an Autopilot ${outcome} public result #when a child link exists #then the entire output remains JSON without reuse advice`, async () => {
+      const result = { protocol: "autopilot.result.v1", outcome, effect: "not_attempted" }
+      const output = { title: "task", output: JSON.stringify(result), metadata: { sessionID: "ses_autopilot" } }
+
+      await afterHook(createInput("task"), output)
+
+      expect(JSON.parse(output.output)).toEqual(result)
+      expect(output.output).toBe(JSON.stringify(result))
+    })
+  }
+
+  it("#given ordinary structured task output #when a child link exists #then continuation remains available", async () => {
+    const content = JSON.stringify({ protocol: "ordinary.result.v1", outcome: "complete" })
+    const output = { title: "task", output: content, metadata: { sessionID: "ses_ordinary" } }
+
+    await afterHook(createInput("task"), output)
+
+    expect(output.output).toStartWith(content)
+    expect(output.output).toContain('task(task_id="ses_ordinary"')
+    expect(output.output).toContain("run_in_background=true")
+  })
+
   describe("#given MCP tool with undefined output.output", () => {
     describe("#when tool.execute.after is called", () => {
       it("#then should not crash", async () => {

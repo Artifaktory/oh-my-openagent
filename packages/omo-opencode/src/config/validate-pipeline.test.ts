@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { validatePluginConfig } from "./validate"
+import { getAutopilotBinding } from "../features/autopilot/authority"
 
 function withProjectConfig<T>(name: string, config: unknown, run: (project: string) => T): T {
   const home = process.env.HOME
@@ -35,6 +36,16 @@ function withProjectConfig<T>(name: string, config: unknown, run: (project: stri
 }
 
 describe("validatePluginConfig pipeline", () => {
+  it("#given a core-pruned Autopilot model #when validating #then the invalid diagnostic cannot become an implicit default", () => {
+    withProjectConfig("autopilot-core-pruned", { agents: { autopilot: { model: 123 } } }, project => {
+      const result = validatePluginConfig(project)
+      expect(result.valid).toBe(false)
+      expect(result.warnings.some(message => message.includes("agents.autopilot.model"))).toBe(true)
+      expect(getAutopilotBinding(result.config)?.state).toBe("invalid")
+      expect(result.messages).toContain("autopilot: native_source_invalid")
+    })
+  })
+
   it("#given unsafe own permission keys beside valid agent and TUI values #when validating #then ignores and reports the keys without crashing or dropping valid siblings", () => {
     withProjectConfig(
       "unsafe-own-keys",

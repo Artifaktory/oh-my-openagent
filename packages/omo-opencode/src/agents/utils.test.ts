@@ -9,6 +9,13 @@ import { clearSkillCache, resolveMultipleSkills } from "../features/opencode-ski
 import * as connectedProvidersCache from "../shared/connected-providers-cache"
 import * as modelAvailability from "../shared/model-availability"
 import * as shared from "../shared"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
+import { validatePluginConfig } from "../config/validate"
+import * as filePrompt from "./builtin-agents/resolve-file-uri"
+import * as skillContent from "../features/opencode-skill-loader/skill-content"
 import { FABLE_55_RELEASED } from "@oh-my-opencode/model-core"
 
 const TEST_DEFAULT_MODEL = "anthropic/claude-opus-5-5"
@@ -39,6 +46,39 @@ afterEach(() => {
 })
 
 describe("createBuiltinAgents with model overrides", () => {
+  test("#given native Autopilot authority #when registered #then model and deferred instructions use the owned branch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "autopilot-registration-"))
+    const project = join(root, "project")
+    const policy = join(project, "policy")
+    mkdirSync(join(root, ".omo"), { recursive: true })
+    mkdirSync(policy, { recursive: true })
+    const promptPath = join(policy, "missing.md")
+    const fetchSpy = spyOn(shared, "fetchAvailableModels").mockResolvedValue(new Set(["provider/selected"]))
+    const fileSpy = spyOn(filePrompt, "resolvePromptAppend")
+    const skillSpy = spyOn(skillContent, "resolveMultipleSkills")
+    try {
+      writeFileSync(join(root, ".omo", "omo.jsonc"), JSON.stringify({ "[opencode]": {
+        autopilot: { format_version: "1", mode: "on", enrollments: [{ id: "workspace", workspace: project,
+          task_store_roots: ["policy"], policy_roots: ["policy"], evidence_roots: ["policy"], manifest: "policy/manifest.json",
+          sources: [{ id: "prompt", channel: "prompt", kind: "file", source: promptPath },
+            { id: "deferred-review", channel: "skill", kind: "inline", source: join(policy, "SKILL.md") }] }] },
+        agents: { autopilot: { model: "provider/selected", prompt: pathToFileURL(promptPath).href, skills: ["deferred-review"] } },
+      } }))
+      const config = validatePluginConfig(project, { HOME: root, USERPROFILE: root }).config
+      const agents = await createBuiltinAgents([], config.agents, project, TEST_DEFAULT_MODEL)
+      expect(agents.autopilot).toMatchObject({ model: "provider/selected", mode: "subagent", permission: { "*": "deny" } })
+      expect(fileSpy).not.toHaveBeenCalled()
+      expect(skillSpy.mock.calls.some(([names]) => names.includes("deferred-review"))).toBe(false)
+      expect((await createBuiltinAgents(["AUTOPILOT"], config.agents, project, TEST_DEFAULT_MODEL)).autopilot).toBeUndefined()
+      expect((await createBuiltinAgents([], structuredClone(config.agents), project, TEST_DEFAULT_MODEL)).autopilot).toBeUndefined()
+    } finally {
+      fileSpy.mockRestore()
+      skillSpy.mockRestore()
+      fetchSpy.mockRestore()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("user config models take priority when team_mode is enabled", async () => {
     // #given
     const providerModelsSpy = spyOn(connectedProvidersCache, "readProviderModelsCache").mockReturnValue(null)

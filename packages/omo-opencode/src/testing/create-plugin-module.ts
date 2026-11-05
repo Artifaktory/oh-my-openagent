@@ -1,5 +1,7 @@
 import type { Hooks, Plugin, PluginModule } from "@opencode-ai/plugin"
 import type { HookName } from "../config"
+import { createAutopilotRuntime, AutopilotError } from "../features/autopilot"
+import { getAgentDisplayName } from "../shared/agent-display-names"
 import { validatePluginConfig } from "../config/validate"
 import { initConfigContext } from "../cli/config-manager/config-context"
 import { ensureTuiPluginEntry } from "../cli/config-manager/add-tui-plugin-to-tui-config"
@@ -299,7 +301,12 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
       runtimeSkillSourceUrl: runtimeSkillSource?.url,
     })
 
+    const autopilotRuntime = createAutopilotRuntime({ executor: {
+      client: input.client, directory: input.directory, manager: managers.backgroundManager,
+      taskCleanupDelayMs: pluginConfig.background_task?.taskCleanupDelayMs,
+    }, worktree: input.worktree, nativeAgentNames: [getAgentDisplayName("autopilot", pluginConfig.agents)] })
     const toolsResult = await deps.createTools({
+      autopilotRuntime,
       ctx: input,
       pluginConfig,
       managers,
@@ -319,6 +326,7 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
     })
 
     const pluginInterface = deps.createPluginInterface({
+      autopilotRuntime,
       ctx: input,
       pluginConfig,
       firstMessageVariantGate,
@@ -334,14 +342,24 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
       disposeHooks: hooks.disposeHooks,
     })
 
+    const compact = createSessionCompactingHandler(hooks)
+    const autocontinue = createCompactionAutocontinueHandler(hooks)
     const pluginHooks: HooksWithRuntimeLifecycle = {
       ...pluginInterface,
 
-      "experimental.session.compacting": createSessionCompactingHandler(hooks),
+      "experimental.session.compacting": async (input, output) => {
+        if (await autopilotRuntime.guardSession(input.sessionID)) throw new AutopilotError("child_reuse")
+        await compact(input, output)
+      },
 
-      "experimental.compaction.autocontinue": createCompactionAutocontinueHandler(hooks),
+      "experimental.compaction.autocontinue": async (input, output) => {
+        if (autopilotRuntime.ownsChild(input.sessionID)) { output.enabled = false; return }
+        await autopilotRuntime.guardSession(input.sessionID, input.agent)
+        await autocontinue(input, output)
+      },
 
       dispose: async (): Promise<void> => {
+        autopilotRuntime.dispose()
         runtimeSkillSource?.stop()
         await dispose()
       },

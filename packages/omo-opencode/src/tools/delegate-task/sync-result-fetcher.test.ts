@@ -1,5 +1,30 @@
 const { describe, test, expect } = require("bun:test")
 
+describe("strict native Autopilot final", () => {
+  const fixture = () => ({ info: { id: "final", sessionID: "child", parentID: "prompt", role: "assistant", agent: "autopilot",
+    providerID: "test", modelID: "one", finish: "stop", time: { created: 20, completed: 30 } }, parts: [{ type: "text", text: "decision" }] })
+  const fetch = (messages: unknown[]) => require("./sync-result-fetcher").fetchAutopilotFinalResult({ session: { messages: async () => ({ data: messages }) } },
+    { sessionID: "child", promptMessageID: "prompt", dispatchedAt: 10, providerID: "test", modelID: "one", signal: new AbortController().signal })
+  const user = { info: { role: "user", id: "prompt", sessionID: "child" } }
+  test("#given latest completed native final #when fetched #then actual text and provenance survive", async () => {
+    expect(await fetch([user, fixture()])).toMatchObject({ text: "decision", sessionID: "child", messageID: "final", modelID: "one" })
+  })
+  for (const mutation of ["reasoning", "wrong-agent", "wrong-model", "wrong-parent", "unfinished", "error", "newer-user", "newer-unfinished"] as const) {
+    test(`#given ${mutation} #when strict final is fetched #then no old or reasoning-only success is used`, async () => {
+      const final = fixture(), messages: unknown[] = [user, final]
+      if (mutation === "reasoning") final.parts[0].type = "reasoning"
+      if (mutation === "wrong-agent") final.info.agent = "sisyphus"
+      if (mutation === "wrong-model") final.info.modelID = "other"
+      if (mutation === "wrong-parent") final.info.parentID = "other"
+      if (mutation === "unfinished") final.info.finish = "tool-calls"
+      if (mutation === "error") Object.assign(final.info, { error: { name: "APIError" } })
+      if (mutation === "newer-user") messages.push({ info: { role: "user", id: "other", sessionID: "child" } })
+      if (mutation === "newer-unfinished") messages.push({ ...fixture(), info: { ...final.info, id: "later", finish: "tool-calls", time: { created: 40 } } })
+      await expect(fetch(messages)).rejects.toThrow()
+    })
+  }
+})
+
 describe("fetchSyncResult", () => {
   test("without anchor: returns latest assistant message (existing behavior)", async () => {
     //#given - messages with multiple assistant responses, no anchor

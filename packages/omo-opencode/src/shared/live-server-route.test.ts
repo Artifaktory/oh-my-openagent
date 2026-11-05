@@ -190,9 +190,9 @@ describe("live-server-route", () => {
       initLiveServerRoute({ serverUrl: FAKE_SERVER_URL, directory: "/tmp/test", inProcessClient: fakeInProcessClient })
 
       //#when
-      const t0 = Date.now()
+      const t0 = performance.now()
       const result = await resolveDispatchClient(fakeInProcessClient, "ses_timeout")
-      const elapsed = Date.now() - t0
+      const elapsed = performance.now() - t0
 
       //#then
       expect(result.route).toBe("in-process")

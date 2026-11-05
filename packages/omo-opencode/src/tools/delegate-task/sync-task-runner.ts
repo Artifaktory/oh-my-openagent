@@ -100,6 +100,22 @@ export async function runSyncTaskLoop(input: SyncTaskRunnerInput): Promise<strin
       }
     : undefined
   let activeSessionID = input.sessionID
+  let capturedFallbackIndex = 0
+  const restartCapturedFallback = async (): Promise<boolean> => {
+    const next = deps.capturedFallbackModels?.[capturedFallbackIndex++]
+    if (!next) return false
+    cleanupRetrySession(activeSessionID)
+    await deps.onModelChange?.(next)
+    const created = await deps.createSyncSession(client, { parentSessionID: parentContext.sessionID,
+      agentToUse, description: args.description, defaultDirectory: directory, category: args.category, categoryModel: next })
+    if (!created.ok) return false
+    activeSessionID = created.sessionID
+    effectiveCategoryModel = next
+    setSyncSessionID(activeSessionID)
+    await registerSyncSession(activeSessionID)
+    await publishSyncMetadata(activeSessionID, effectiveCategoryModel, spawnDepth)
+    return true
+  }
 
   while (true) {
     let promptError = await deps.sendSyncPrompt(client, {
@@ -114,6 +130,10 @@ export async function runSyncTaskLoop(input: SyncTaskRunnerInput): Promise<strin
       categoryModel: effectiveCategoryModel,
     })
     if (promptError) {
+      if (deps.capturedFallbackModels !== undefined) {
+        if (shouldRetryPollErrorWithFallback(promptError, deps) && await restartCapturedFallback()) continue
+        return promptError
+      }
       const promptResult = await retrySyncPromptWithFallbacks({
         sessionID: activeSessionID,
         initialError: promptError,
@@ -152,6 +172,10 @@ export async function runSyncTaskLoop(input: SyncTaskRunnerInput): Promise<strin
       hasPendingParentWake,
     }, syncPollTimeoutMs)
     if (pollError) {
+      if (deps.capturedFallbackModels !== undefined) {
+        if (shouldRetryPollErrorWithFallback(pollError, deps) && await restartCapturedFallback()) continue
+        return pollError
+      }
       if (shouldAttemptPollErrorRecovery(pollError)) {
         const recoveredResult = await deps.fetchSyncResult(client, activeSessionID, undefined, {
           strictAbortRecovery: true,
@@ -214,6 +238,7 @@ export async function runSyncTaskLoop(input: SyncTaskRunnerInput): Promise<strin
 
     await publishSyncMetadata(activeSessionID, effectiveCategoryModel, spawnDepth)
 
+    deps.onNativeCompleted?.(activeSessionID)
     return buildSyncTaskCompletion({
       activeSessionID,
       agentToUse,

@@ -13,9 +13,13 @@ import { isPlanFamily } from "./constants"
 import { formatDetailedError } from "./error-formatting"
 import { buildTaskPrompt } from "./prompt-builder"
 import type { DelegatedModelConfig, DelegateTaskArgs, OpencodeClient } from "./types"
+import type { SyncExecutionControl } from "./sync-admission"
+import { dispatchInternalPrompt } from "../../shared/prompt-async-gate"
+import { shouldRetryError } from "../../shared/model-error-classifier"
 
 type SendSyncPromptDeps = {
   promptWithModelSuggestionRetry: typeof promptWithModelSuggestionRetry
+  dispatchInternalPrompt?: typeof dispatchInternalPrompt
 }
 
 const sendSyncPromptDeps: SendSyncPromptDeps = {
@@ -50,6 +54,18 @@ function isUnexpectedEofError(error: unknown): boolean {
   return lowered.includes("unexpected eof") || lowered.includes("json parse error")
 }
 
+function retryableNativeError(error: unknown): boolean {
+  if (error instanceof Error) return shouldRetryError({ name: error.name, message: error.message })
+  if (typeof error === "string") return shouldRetryError({ message: error })
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>
+    return shouldRetryError({ ...(typeof record.name === "string" ? { name: record.name } : {}),
+      ...(typeof record.message === "string" ? { message: record.message } : {}),
+      ...(typeof record.statusCode === "number" ? { statusCode: record.statusCode } : {}) })
+  }
+  return false
+}
+
 export function buildSyncPromptTools(
   agentToUse: string,
   permission?: Record<string, "ask" | "allow" | "deny">,
@@ -81,15 +97,18 @@ export async function sendSyncPrompt(
     toastManager: { removeTask: (id: string) => void } | null | undefined
     taskId: string | undefined
     sisyphusAgentConfig?: SisyphusAgentConfig
+    control?: SyncExecutionControl
+    ownedPrompt?: { readonly messageID: string; readonly tools: Readonly<Record<string, boolean>> }
   },
   deps: SendSyncPromptDeps = sendSyncPromptDeps
 ): Promise<string | null> {
   const tddEnabled = input.sisyphusAgentConfig?.tdd
-  const effectivePrompt = buildTaskPrompt(input.args.prompt, input.agentToUse, tddEnabled)
+  input.control?.check()
+  const effectivePrompt = input.ownedPrompt ? input.args.prompt : buildTaskPrompt(input.args.prompt, input.agentToUse, tddEnabled)
   const userPermission = input.categoryModel?.tools
     ? migrateToolsToPermission(input.categoryModel.tools)
     : undefined
-  const tools = buildSyncPromptTools(input.agentToUse, userPermission)
+  const tools = input.ownedPrompt ? { ...input.ownedPrompt.tools } : buildSyncPromptTools(input.agentToUse, userPermission)
   setSessionTools(input.sessionID, tools)
 
   const loweredReasoning = applySessionPromptParams(input.sessionID, input.categoryModel)
@@ -101,12 +120,14 @@ export async function sendSyncPrompt(
     : input.categoryModel?.variant
 
   const promptArgs = {
+    ...(input.control ? { signal: input.control.signal } : {}),
     path: { id: input.sessionID },
     body: {
       agent: stripInvisibleAgentCharacters(input.agentToUse),
       system: input.systemContent,
       tools,
       parts: [createInternalAgentTextPart(effectivePrompt)],
+      ...(input.ownedPrompt ? { messageID: input.ownedPrompt.messageID } : {}),
       ...(input.categoryModel
         ? {
             model: {
@@ -121,12 +142,28 @@ export async function sendSyncPrompt(
   }
 
   try {
+    if (input.control) {
+      const control = input.control
+      control.check()
+      const result = await (deps.dispatchInternalPrompt ?? dispatchInternalPrompt)({
+        mode: "async", client, sessionID: input.sessionID,
+        input: routePromptRetry(promptArgs, input.directory), source: "task-sync-controlled",
+        queueBehavior: "defer", durableRetry: false, dispatchTimeoutMs: control.remaining(),
+        shouldDispatch: () => { try { control.check(); return true } catch { return false } },
+      })
+      control.check()
+      if (result.status !== "dispatched") return "error" in result && retryableNativeError(result.error)
+        ? "Retryable native model unavailable; captured fallback eligible" : "Autopilot native dispatch was not accepted"
+      return null
+    }
     await deps.promptWithModelSuggestionRetry(client, routePromptRetry(promptArgs, input.directory), {
       queueBehavior: "defer",
       checkStatus: false,
       checkToolState: false,
     })
   } catch (promptError) {
+    if (input.ownedPrompt) return retryableNativeError(promptError)
+      ? "Retryable native model unavailable; captured fallback eligible" : "Autopilot native dispatch failed"
     if (isOracleAgent(input.agentToUse) && isUnexpectedEofError(promptError)) {
       return null
     }
