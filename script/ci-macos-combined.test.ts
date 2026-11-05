@@ -106,12 +106,11 @@ describe("combined macOS CI execution contract (#9974)", () => {
     ["macos-test-2-status", "test", "lsp", "shard2"],
     ["macos-codex-status", "codex-compatibility", "codex"],
     ["macos-senpi-status", "senpi-compatibility", "senpi"],
-  ])("#given %s #when its status is published #then Linux judges only the corresponding part", (id, name, ...outputs) => {
+  ])("#given %s #when its status is published #then Ubuntu judges only the corresponding part", (id, name, ...outputs) => {
     if (id === undefined || name === undefined) throw new Error("incomplete status fixture")
     const status = job(id)
     expect(status.name).toBe(name)
-    // Internal Fast and hosted fallback allocation are covered by ci-platform-runner-allocation.
-    expect(status.steps.some((step) => step.run?.includes("bun test"))).toBe(false)
+    expect(status["runs-on"]).toBe("ubuntu-26.04")
     expect(status.needs).toEqual(["ci-mode", "macos-combined"])
     expect(status.if).toBe("${{ always() && !cancelled() }}")
     const judge = status.steps.find((step) => step.run?.endsWith("bash .github/scripts/ci-macos-status.sh"))

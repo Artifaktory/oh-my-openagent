@@ -19,7 +19,7 @@ jobs:
     concurrency:
       group: pr-changelog-gate-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7

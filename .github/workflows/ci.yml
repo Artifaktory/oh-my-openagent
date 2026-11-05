@@ -26,7 +26,7 @@ jobs:
   # when the rest of CI takes a docs/web/release fast path.
   lint-ratchet:
     name: Lint ratchet
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -58,7 +58,7 @@ jobs:
         run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
 
   ci-mode:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     outputs:
       generated_release_push: ${{ steps.classify.outputs.generated_release_push }}
       web_only: ${{ steps.classify.outputs.web_only }}
@@ -134,7 +134,7 @@ jobs:
 
   # Block PRs targeting master branch (comment + auto-close, then fail the check)
   block-master-pr:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     if: github.event_name == 'pull_request'
     permissions:
       pull-requests: write
@@ -199,7 +199,7 @@ jobs:
     # Preserve required matrix check names during the Ubuntu image migration.
     # Outside the full matrix a macOS/Windows leg still reports its required context, from an ubuntu
     # runner with every heavy step skipped, so it never waits for a hosted macOS/Windows slot (#10856).
-    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && (matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]')) || 'ubuntu-26.04') || matrix.os }}
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && 'ubuntu-26.04' || matrix.os }}
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 60 || 30 }}
     strategy:
       fail-fast: false
@@ -291,8 +291,6 @@ jobs:
       - name: Run tests
         id: root-tests-posix-1
         if: needs.ci-mode.outputs.run_heavy == 'true' && runner.os != 'Windows' && matrix.shard == '1/2' && (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix == 'true')
-        env:
-          OMO_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
           if [ "$RUNNER_OS" != "Linux" ]; then
@@ -300,7 +298,7 @@ jobs:
             exit 0
           fi
           bun test --timeout 20000 packages/omo-opencode
-          if [ "$OMO_CI_RUNNER_ENVIRONMENT" = "github-hosted" ] && [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           if ! procs="$(unshare -Upf --mount-proc --map-current-user -- sh -c 'ls /proc | grep -c "^[0-9]"')"; then
@@ -522,7 +520,7 @@ jobs:
     name: test
     needs: [ci-mode, macos-combined]
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -547,7 +545,7 @@ jobs:
     name: test
     needs: [ci-mode, macos-combined]
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -572,7 +570,7 @@ jobs:
     name: codex-compatibility
     needs: [ci-mode, macos-combined]
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -597,7 +595,7 @@ jobs:
     name: senpi-compatibility
     needs: [ci-mode, macos-combined]
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         os: [macos-latest]
@@ -618,7 +616,7 @@ jobs:
 
   typecheck:
     needs: [ci-mode]
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -697,7 +695,7 @@ jobs:
     # Preserve required matrix check names during the Ubuntu image migration.
     # Outside the full matrix a macOS/Windows leg still reports its required context, from an ubuntu
     # runner with every heavy step skipped, so it never waits for a hosted macOS/Windows slot (#10856).
-    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && (matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]')) || 'ubuntu-26.04') || matrix.os }}
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && 'ubuntu-26.04' || matrix.os }}
     strategy:
       fail-fast: false
       # merge_group retains all three required compatibility contexts.
@@ -803,7 +801,7 @@ jobs:
     # Preserve required matrix check names during the Ubuntu image migration.
     # Outside the full matrix a macOS/Windows leg still reports its required context, from an ubuntu
     # runner with every heavy step skipped, so it never waits for a hosted macOS/Windows slot (#10856).
-    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && (matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || fromJSON('["self-hosted","Linux","X64","af-ci-fast-v1"]')) || 'ubuntu-26.04') || matrix.os }}
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix != 'true') && 'ubuntu-26.04' || matrix.os }}
     strategy:
       fail-fast: false
       # merge_group retains this matrix, including the required ubuntu context.
@@ -947,7 +945,7 @@ jobs:
 
   lazycodex-published-smoke:
     needs: [ci-mode]
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     continue-on-error: true
     steps:
       - uses: actions/setup-node@v7
@@ -1036,7 +1034,7 @@ jobs:
 
   build:
     needs: [ci-mode]
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -1101,7 +1099,7 @@ jobs:
 
   omo-ai-payload-check:
     needs: [ci-mode]
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","Linux","X64","af-ci-build-v1","backbone-ci"]') || 'ubuntu-26.04' }}
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
